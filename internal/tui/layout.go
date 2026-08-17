@@ -1,0 +1,181 @@
+package tui
+
+import (
+	"fmt"
+
+	"github.com/jesseduffield/gocui"
+)
+
+var roundedFrame = []rune{'─', '│', '╭', '╮', '╰', '╯'}
+
+func (a *App) layout(g *gocui.Gui) error {
+	maxX, maxY := g.Size()
+	if maxX < 80 || maxY < 20 {
+		a.hideViews(g)
+		v, err := g.SetView("guard", 0, 0, maxX-1, maxY-1, 0)
+		if err != nil && !gocui.IsUnknownView(err) {
+			return err
+		}
+		v.Visible, v.Title = true, " lazy-xcode "
+		v.Clear()
+		fmt.Fprintf(v, "Terminal is too small.\n\nCurrent: %dx%d\nRequired: 80x20", maxX, maxY)
+		return nil
+	}
+	if v, err := g.View("guard"); err == nil {
+		v.Visible = false
+	}
+	left := maxX * 38 / 100
+	if left < 34 {
+		left = 34
+	}
+	if left > 46 {
+		left = 46
+	}
+	statusY := maxY - 1
+	buildBottom := 9
+	if err := a.ensureView(g, "build", 0, 1, left-1, buildBottom, "Build [1]", false); err != nil {
+		return err
+	}
+	if err := a.ensureView(g, "builds", 0, buildBottom+1, left-1, statusY-1, "Builds [2]", true); err != nil {
+		return err
+	}
+	outputTitle := "Output [3]"
+	if len(a.records) > 0 && a.buildIndex < len(a.records) {
+		outputTitle += " - #" + shortID(a.records[a.buildIndex].ID)
+		if a.records[a.buildIndex].Phase.Active() && a.outputFollow {
+			outputTitle += " - FOLLOW"
+		}
+	}
+	if err := a.ensureView(g, "output", left, 1, maxX-1, statusY-1, outputTitle, false); err != nil {
+		return err
+	}
+	if err := a.ensureHeader(g, maxX); err != nil {
+		return err
+	}
+	if err := a.ensureFooter(g, statusY, maxX); err != nil {
+		return err
+	}
+	if err := a.render(g); err != nil {
+		return err
+	}
+	if a.overlay != nil {
+		if err := a.layoutOverlay(g, maxX, maxY); err != nil {
+			return err
+		}
+	} else {
+		a.hideOverlay(g)
+	}
+	_, err := g.SetCurrentView(a.currentView())
+	if err != nil && !gocui.IsUnknownView(err) {
+		return err
+	}
+	return nil
+}
+
+func (a *App) ensureHeader(g *gocui.Gui, maxX int) error {
+	v, err := g.SetView("header", -1, -1, maxX, 1, 0)
+	if err != nil && !gocui.IsUnknownView(err) {
+		return err
+	}
+	v.Visible, v.Frame = true, false
+	v.Clear()
+	name := "discovering project..."
+	if a.container.Name != "" {
+		name = a.container.Name
+	}
+	fmt.Fprintf(v, " lazy-xcode | %s", name)
+	return nil
+}
+
+func (a *App) ensureFooter(g *gocui.Gui, y, maxX int) error {
+	v, err := g.SetView("status", -1, y-1, maxX, y+1, 0)
+	if err != nil && !gocui.IsUnknownView(err) {
+		return err
+	}
+	v.Visible, v.Frame, v.Wrap = true, false, false
+	v.Clear()
+	keys := " [Tab] Focus  [Enter] Select  [b] Build  [x] Stop  [r] Reload  [?] Help  [q] Quit"
+	if a.status != "" {
+		keys += "  |  " + a.status
+	}
+	fmt.Fprint(v, keys)
+	return nil
+}
+
+func (a *App) ensureView(g *gocui.Gui, name string, x0, y0, x1, y1 int, title string, highlight bool) error {
+	v, err := g.SetView(name, x0, y0, x1, y1, 0)
+	if err != nil && !gocui.IsUnknownView(err) {
+		return err
+	}
+	v.Visible, v.Title, v.FrameRunes = true, " "+title+" ", roundedFrame
+	v.Wrap = name == "output"
+	v.Highlight = highlight
+	v.SelBgColor = gocui.GetColor("#315d46")
+	v.SelFgColor = gocui.GetColor("#ffffff")
+	return nil
+}
+
+func (a *App) layoutOverlay(g *gocui.Gui, maxX, maxY int) error {
+	width := min(58, maxX-8)
+	height := min(16, maxY-6)
+	x0, y0 := (maxX-width)/2, (maxY-height)/2
+	x1, y1 := x0+width, y0+height
+	filterHeight := 3
+	filter, err := g.SetView("filter", x0, y0, x1, y0+filterHeight-1, 1)
+	if err != nil && !gocui.IsUnknownView(err) {
+		return err
+	}
+	filter.Visible = a.overlay.kind != "help" && a.overlay.kind != "confirm-cache" && a.overlay.kind != "confirm-quit"
+	filter.Title = " " + a.overlay.title + " "
+	filter.Editable = true
+	filter.Editor = gocui.EditorFunc(a.editFilter)
+	filter.FrameRunes = roundedFrame
+	if !a.overlay.initialized {
+		filter.Clear()
+		a.overlay.initialized = true
+	}
+	listY := y0
+	if filter.Visible {
+		listY = y0 + filterHeight
+	}
+	list, err := g.SetView("overlay", x0, listY, x1, y1, 0)
+	if err != nil && !gocui.IsUnknownView(err) {
+		return err
+	}
+	list.Visible, list.FrameRunes = true, roundedFrame
+	if !filter.Visible {
+		list.Title = " " + a.overlay.title + " "
+	} else {
+		list.Title = " [Enter] Select  [Esc] Cancel "
+	}
+	list.Highlight = true
+	list.SelBgColor = gocui.GetColor("#315d46")
+	list.SelFgColor = gocui.GetColor("#ffffff")
+	return a.renderOverlay(filter, list)
+}
+
+func (a *App) hideViews(g *gocui.Gui) {
+	for _, name := range []string{"header", "build", "builds", "output", "status", "filter", "overlay"} {
+		if v, err := g.View(name); err == nil {
+			v.Visible = false
+		}
+	}
+}
+
+func (a *App) hideOverlay(g *gocui.Gui) {
+	for _, name := range []string{"filter", "overlay"} {
+		if v, err := g.View(name); err == nil {
+			v.Visible = false
+		}
+	}
+}
+
+func (a *App) currentView() string {
+	if a.overlay != nil {
+		if a.overlay.kind == "help" || a.overlay.kind == "confirm-cache" || a.overlay.kind == "confirm-quit" {
+			return "overlay"
+		}
+		return "filter"
+	}
+	return a.focus
+}
