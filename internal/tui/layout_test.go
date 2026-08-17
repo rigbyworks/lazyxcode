@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -81,4 +82,39 @@ func TestBuildEventsAreAppliedInSequence(t *testing.T) {
 	if a.outputs["build"] != "firstsecond" {
 		t.Fatalf("output = %q", a.outputs["build"])
 	}
+}
+
+func TestSimulatorPickerCursorTracksSelectionAcrossViewport(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, SupportOverlaps: true, Headless: true, Width: 100, Height: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	items := make([]overlayItem, 37)
+	for i := range items {
+		items[i] = overlayItem{ID: fmt.Sprint(i), Label: fmt.Sprintf("Simulator %02d", i)}
+	}
+	a := &App{gui: g, focus: "build", outputs: map[string]string{}, overlay: &overlayState{kind: "simulator", title: "Select Simulator", items: items}}
+
+	assertSelection := func(want int) {
+		t.Helper()
+		a.overlay.selected = want
+		if err := a.layoutOverlay(g, 100, 30); err != nil {
+			t.Fatal(err)
+		}
+		list, err := g.View("overlay")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, origin := list.Origin()
+		_, cursor := list.Cursor()
+		if got := origin + cursor; got != want {
+			t.Fatalf("selection %d rendered at row %d (origin=%d cursor=%d)", want, got, origin, cursor)
+		}
+	}
+
+	assertSelection(0)
+	assertSelection(25)
+	assertSelection(36)
+	assertSelection(5)
 }

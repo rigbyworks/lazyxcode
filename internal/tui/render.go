@@ -56,12 +56,14 @@ func (a *App) render(g *gocui.Gui) error {
 	if len(a.records) == 0 {
 		fmt.Fprintln(buildsView, "  No builds yet")
 	}
+	buildsView.Highlight = len(a.records) > 0
 	if len(a.records) > 0 {
 		if a.buildIndex >= len(a.records) {
 			a.buildIndex = len(a.records) - 1
 		}
-		buildsView.SetCursor(0, a.buildIndex)
-		ensureVisible(buildsView, a.buildIndex)
+		setListCursor(buildsView, a.buildIndex, len(a.records), 0)
+	} else {
+		setListCursor(buildsView, 0, 0, 0)
 	}
 
 	outputView.Clear()
@@ -166,14 +168,27 @@ func valueOr(value, fallback string) string {
 	return value
 }
 
-func ensureVisible(view *gocui.View, index int) {
+func setListCursor(view *gocui.View, index, total, itemOffset int) {
 	_, height := view.InnerSize()
-	_, origin := view.Origin()
-	if index < origin {
-		view.SetOrigin(0, index)
-	} else if index >= origin+height {
-		view.SetOrigin(0, index-height+1)
+	if height < 1 {
+		return
 	}
+	if total == 0 {
+		view.SetOrigin(0, 0)
+		view.SetCursor(0, 0)
+		return
+	}
+	absoluteRow := itemOffset + clamp(index, 0, total-1)
+	_, origin := view.Origin()
+	if absoluteRow < origin {
+		origin = absoluteRow
+	} else if absoluteRow >= origin+height {
+		origin = absoluteRow - height + 1
+	}
+	lastRow := itemOffset + total - 1
+	origin = clamp(origin, 0, max(0, lastRow-height+1))
+	view.SetOrigin(0, origin)
+	view.SetCursor(0, absoluteRow-origin)
 }
 
 func (a *App) renderOverlay(filter, list *gocui.View) error {
@@ -193,10 +208,7 @@ func (a *App) renderOverlay(filter, list *gocui.View) error {
 	for _, item := range items {
 		fmt.Fprintln(list, item.Label)
 	}
-	if len(items) > 0 {
-		list.SetCursor(0, a.overlay.selected+itemOffset)
-		ensureVisible(list, a.overlay.selected+itemOffset)
-	}
+	setListCursor(list, a.overlay.selected, len(items), itemOffset)
 	if filter.Visible && filter.Buffer() == "" && a.overlay.filter != "" {
 		filter.Clear()
 		fmt.Fprint(filter, a.overlay.filter)
