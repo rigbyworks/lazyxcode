@@ -192,6 +192,46 @@ SwiftEmitModule normal arm64
 	}
 }
 
+func TestBuildOutputFormatsDiagnosticsWithoutChangingText(t *testing.T) {
+	plain := `/tmp/App.swift:10:5: warning: value was never used
+let unused = value
+    ^~~~~~
+/tmp/App.swift:20:9: error: cannot find 'missing' in scope
+        ^~~~~~~
+/tmp/App.swift:20:9: note: did you mean 'existing'?
+        ^~~~~~~~
+** BUILD FAILED **`
+	formatted := formatBuildOutput(plain)
+	for _, expected := range []string{
+		ansiCyan + "/tmp/App.swift:10:5:" + ansiReset,
+		ansiBoldYellow + "warning:" + ansiReset,
+		ansiBoldYellow + "    ^~~~~~" + ansiReset,
+		ansiBoldRed + "error:" + ansiReset,
+		ansiBoldRed + "        ^~~~~~~" + ansiReset,
+		ansiCyan + "note:" + ansiReset,
+		ansiCyan + "        ^~~~~~~~" + ansiReset,
+		ansiBoldRed + "** BUILD FAILED **" + ansiReset,
+	} {
+		if !strings.Contains(formatted, expected) {
+			t.Fatalf("formatted output missing %q:\n%s", expected, formatted)
+		}
+	}
+	if got := ansiPattern.ReplaceAllString(formatted, ""); got != plain {
+		t.Fatalf("formatting changed transcript:\ngot:  %q\nwant: %q", got, plain)
+	}
+}
+
+func TestBuildOutputFormatsSuccessAndLifecycleMessages(t *testing.T) {
+	plain := "[lazy-xcode] Installing app\n** BUILD SUCCEEDED **"
+	formatted := formatBuildOutput(plain)
+	if !strings.Contains(formatted, ansiCyan+"[lazy-xcode]"+ansiReset) {
+		t.Fatalf("lifecycle prefix not formatted: %q", formatted)
+	}
+	if !strings.Contains(formatted, ansiBoldGreen+"** BUILD SUCCEEDED **"+ansiReset) {
+		t.Fatalf("success marker not formatted: %q", formatted)
+	}
+}
+
 func TestOutputVerbosityAppearsInPanelTitle(t *testing.T) {
 	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, SupportOverlaps: true, Headless: true, Width: 100, Height: 30})
 	if err != nil {

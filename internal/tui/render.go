@@ -12,6 +12,16 @@ import (
 
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
+var diagnosticLocationPattern = regexp.MustCompile(`^(.+:\d+:\d+:)(.*)$`)
+
+const (
+	ansiReset      = "\x1b[0m"
+	ansiBoldRed    = "\x1b[1;31m"
+	ansiBoldYellow = "\x1b[1;33m"
+	ansiBoldGreen  = "\x1b[1;32m"
+	ansiCyan       = "\x1b[36m"
+)
+
 func (a *App) render(g *gocui.Gui) error {
 	buildView, _ := g.View("build")
 	buildsView, _ := g.View("builds")
@@ -91,12 +101,12 @@ func (a *App) render(g *gocui.Gui) error {
 		if !a.verboseOutput {
 			output = conciseBuildOutput(output)
 		}
-		fmt.Fprint(outputView, output)
+		fmt.Fprint(outputView, formatBuildOutput(output))
 		if record.Error != "" {
 			if output != "" && !strings.HasSuffix(output, "\n") {
 				fmt.Fprintln(outputView)
 			}
-			fmt.Fprintf(outputView, "\n[%s] %s\n", phaseLabel(record.Phase), record.Error)
+			fmt.Fprintf(outputView, "\n%s[%s] %s%s\n", ansiBoldRed, phaseLabel(record.Phase), record.Error, ansiReset)
 		}
 		if record.Phase.Active() && a.outputFollow {
 			scrollOutputToBottom(outputView)
@@ -105,6 +115,101 @@ func (a *App) render(g *gocui.Gui) error {
 		}
 	}
 	return nil
+}
+
+type diagnosticSeverity int
+
+const (
+	diagnosticNone diagnosticSeverity = iota
+	diagnosticWarning
+	diagnosticError
+	diagnosticNote
+)
+
+func formatBuildOutput(output string) string {
+	lines := strings.Split(output, "\n")
+	severity := diagnosticNone
+	for i, line := range lines {
+		lower := strings.ToLower(line)
+		switch {
+		case strings.Contains(lower, "** build failed **"):
+			lines[i] = ansiBoldRed + line + ansiReset
+			severity = diagnosticNone
+		case strings.Contains(lower, "** build succeeded **"):
+			lines[i] = ansiBoldGreen + line + ansiReset
+			severity = diagnosticNone
+		case diagnosticToken(lower, "fatal error:") >= 0:
+			lines[i] = formatDiagnosticLine(line, "fatal error:", ansiBoldRed)
+			severity = diagnosticError
+		case diagnosticToken(lower, "error:") >= 0:
+			lines[i] = formatDiagnosticLine(line, "error:", ansiBoldRed)
+			severity = diagnosticError
+		case diagnosticToken(lower, "warning:") >= 0:
+			lines[i] = formatDiagnosticLine(line, "warning:", ansiBoldYellow)
+			severity = diagnosticWarning
+		case diagnosticToken(lower, "note:") >= 0:
+			lines[i] = formatDiagnosticLine(line, "note:", ansiCyan)
+			severity = diagnosticNote
+		case isDiagnosticPointer(line) && severity != diagnosticNone:
+			color := ansiCyan
+			if severity == diagnosticWarning {
+				color = ansiBoldYellow
+			} else if severity == diagnosticError {
+				color = ansiBoldRed
+			}
+			lines[i] = color + line + ansiReset
+		case strings.HasPrefix(strings.TrimSpace(line), "[lazy-xcode]"):
+			lines[i] = colorPrefix(line, "[lazy-xcode]", ansiCyan)
+			severity = diagnosticNone
+		case strings.TrimSpace(line) == "":
+			severity = diagnosticNone
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatDiagnosticLine(line, token, color string) string {
+	formatted := line
+	if match := diagnosticLocationPattern.FindStringSubmatch(line); match != nil {
+		formatted = ansiCyan + match[1] + ansiReset + match[2]
+	}
+	return colorToken(formatted, token, color)
+}
+
+func diagnosticToken(lower, token string) int {
+	index := strings.Index(lower, token)
+	if index < 0 {
+		return -1
+	}
+	if index == 0 || lower[index-1] == ' ' || lower[index-1] == ':' {
+		return index
+	}
+	return -1
+}
+
+func colorToken(line, token, color string) string {
+	lower := strings.ToLower(line)
+	index := strings.Index(lower, token)
+	if index < 0 {
+		return line
+	}
+	return line[:index] + color + line[index:index+len(token)] + ansiReset + line[index+len(token):]
+}
+
+func colorPrefix(line, prefix, color string) string {
+	index := strings.Index(line, prefix)
+	if index < 0 {
+		return line
+	}
+	return line[:index] + color + prefix + ansiReset + line[index+len(prefix):]
+}
+
+func isDiagnosticPointer(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	return strings.Trim(trimmed, "^~ ") == ""
 }
 
 func conciseBuildOutput(raw string) string {
