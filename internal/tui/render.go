@@ -20,6 +20,7 @@ func (a *App) render(g *gocui.Gui) error {
 		return nil
 	}
 	buildView.Clear()
+	buildWidth, buildHeight := buildView.InnerSize()
 	container := valueOr(a.container.Name, "-")
 	scheme := "Loading..."
 	if len(a.schemes) > 0 && a.scheme < len(a.schemes) {
@@ -39,19 +40,33 @@ func (a *App) render(g *gocui.Gui) error {
 			prefix1 = "> "
 		}
 	}
-	fmt.Fprintf(buildView, "  Container   %s\n", container)
-	fmt.Fprintf(buildView, "%sScheme      %s  [>]\n", prefix0, scheme)
-	fmt.Fprintf(buildView, "%sSimulator   %s  [>]\n\n", prefix1, simulator)
 	button := "[b] Start build"
 	if a.loading || len(a.schemes) == 0 || len(a.sims) == 0 {
 		button = "Build unavailable"
 	}
-	fmt.Fprintf(buildView, "  %s\n", button)
-	fmt.Fprintf(buildView, "  Cache: %s       [c] Clear cache", formatBytes(a.cacheSize))
+	if buildHeight >= 7 {
+		writeViewLine(buildView, buildWidth, "  Container   "+container)
+		writeViewLine(buildView, buildWidth, prefix0+"Scheme      "+scheme+"  [>]")
+		writeViewLine(buildView, buildWidth, prefix1+"Simulator   "+simulator+"  [>]")
+		writeViewLine(buildView, buildWidth, "")
+		writeViewLine(buildView, buildWidth, "  "+button)
+		writeViewLine(buildView, buildWidth, "  Cache: "+formatBytes(a.cacheSize)+"  [c] Clear")
+	} else if buildHeight > 0 {
+		lines := []string{
+			"  Project  " + container,
+			prefix0 + "Scheme   " + scheme + " [>]",
+			prefix1 + "Device   " + simulator + " [>]",
+			"  [b] Build  [c] Cache " + formatBytes(a.cacheSize),
+		}
+		for i := 0; i < min(buildHeight, len(lines)); i++ {
+			writeViewLine(buildView, buildWidth, lines[i])
+		}
+	}
 
 	buildsView.Clear()
+	buildsWidth, _ := buildsView.InnerSize()
 	for _, record := range a.records {
-		fmt.Fprintln(buildsView, formatBuildRow(record))
+		fmt.Fprintln(buildsView, formatBuildRow(record, buildsWidth))
 	}
 	if len(a.records) == 0 {
 		fmt.Fprintln(buildsView, "  No builds yet")
@@ -73,6 +88,9 @@ func (a *App) render(g *gocui.Gui) error {
 		a.loadSelectedOutput()
 		record := a.records[a.buildIndex]
 		output := ansiPattern.ReplaceAllString(a.outputs[record.ID], "")
+		if !a.verboseOutput {
+			output = conciseBuildOutput(output)
+		}
 		fmt.Fprint(outputView, output)
 		if record.Error != "" {
 			if output != "" && !strings.HasSuffix(output, "\n") {
@@ -89,8 +107,60 @@ func (a *App) render(g *gocui.Gui) error {
 	return nil
 }
 
-func formatBuildRow(record model.BuildRecord) string {
-	return fmt.Sprintf("%-7s #%s %-14s %s", phaseLabel(record.Phase), shortID(record.ID), truncate(record.Simulator.Name, 14), formatDuration(record.Duration(time.Now())))
+func conciseBuildOutput(raw string) string {
+	lines := strings.Split(raw, "\n")
+	result := make([]string, 0, len(lines)/10)
+	contextLines := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		diagnostic := isBuildDiagnostic(trimmed)
+		include := strings.HasPrefix(trimmed, "[lazy-xcode]") ||
+			diagnostic ||
+			strings.Contains(trimmed, "** BUILD SUCCEEDED **") ||
+			strings.Contains(trimmed, "** BUILD FAILED **")
+		if diagnostic {
+			contextLines = 3
+		} else if contextLines > 0 {
+			if trimmed == "" {
+				contextLines = 0
+			} else if line == strings.TrimLeft(line, " \t") && !strings.Contains(strings.ToLower(line), "note:") {
+				contextLines = 0
+			} else {
+				include = true
+				contextLines--
+			}
+		}
+		if !include {
+			continue
+		}
+		if trimmed == "" && (len(result) == 0 || result[len(result)-1] == "") {
+			continue
+		}
+		result = append(result, line)
+	}
+	return strings.TrimSpace(strings.Join(result, "\n"))
+}
+
+func isBuildDiagnostic(line string) bool {
+	lower := strings.ToLower(line)
+	return strings.Contains(lower, " error:") || strings.HasPrefix(lower, "error:") ||
+		strings.Contains(lower, " warning:") || strings.HasPrefix(lower, "warning:") ||
+		strings.Contains(lower, "fatal error:") || strings.HasPrefix(lower, "ld:") ||
+		strings.Contains(lower, "undefined symbols for architecture") ||
+		strings.Contains(lower, "duplicate symbol") ||
+		strings.Contains(lower, "failed with a nonzero exit code") ||
+		strings.HasPrefix(lower, "the following build commands failed:")
+}
+
+func formatBuildRow(record model.BuildRecord, width int) string {
+	prefix := fmt.Sprintf("%-7s #%s ", phaseLabel(record.Phase), shortID(record.ID))
+	duration := formatDuration(record.Duration(time.Now()))
+	deviceWidth := max(3, width-len(prefix)-len(duration)-1)
+	return truncate(prefix+fmt.Sprintf("%-*s %s", deviceWidth, truncate(record.Simulator.Name, deviceWidth), duration), width)
+}
+
+func writeViewLine(view *gocui.View, width int, line string) {
+	fmt.Fprintln(view, truncate(line, max(0, width)))
 }
 
 func phaseLabel(phase model.Phase) string {

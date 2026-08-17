@@ -21,7 +21,7 @@ func TestHeadlessLayoutMatchesThreePanePlan(t *testing.T) {
 		gui: g, focus: "build", container: model.Container{Name: "App.xcworkspace"},
 		schemes: []string{"App"}, sims: []model.Simulator{{ID: "PHONE", Name: "iPhone 17 Pro", OS: "iOS 26.0"}},
 		records: []model.BuildRecord{{ID: "123-001", Scheme: "App", Simulator: model.Simulator{Name: "iPhone 17 Pro"}, Phase: model.PhaseBuilding, StartedAt: time.Now()}},
-		outputs: map[string]string{"123-001": "CompileSwift App.swift\n"}, outputFollow: true,
+		outputs: map[string]string{"123-001": "[lazy-xcode] Building App for iPhone 17 Pro\nCompileSwift App.swift\n"}, outputFollow: true,
 	}
 	if err := a.layout(g); err != nil {
 		t.Fatal(err)
@@ -36,13 +36,13 @@ func TestHeadlessLayoutMatchesThreePanePlan(t *testing.T) {
 		t.Fatalf("build pane = %q", buildView.Buffer())
 	}
 	output, _ := g.View("output")
-	if !strings.Contains(output.Buffer(), "CompileSwift") || !strings.Contains(output.Title, "FOLLOW") {
+	if !strings.Contains(output.Buffer(), "[lazy-xcode] Building") || strings.Contains(output.Buffer(), "CompileSwift") || !strings.Contains(output.Title, "FOLLOW") {
 		t.Fatalf("output pane/title = %q / %q", output.Buffer(), output.Title)
 	}
 }
 
 func TestSmallTerminalShowsGuard(t *testing.T) {
-	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, Headless: true, Width: 79, Height: 19})
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, Headless: true, Width: 43, Height: 9})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,8 +52,58 @@ func TestSmallTerminalShowsGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	guard, err := g.View("guard")
-	if err != nil || !strings.Contains(guard.Buffer(), "80x20") {
+	if err != nil || !strings.Contains(guard.Buffer(), "44x10") {
 		t.Fatalf("guard = %q, %v", guard.Buffer(), err)
+	}
+}
+
+func TestNarrowTerminalUsesResponsivePanels(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, SupportOverlaps: true, Headless: true, Width: 74, Height: 23})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	a := &App{gui: g, focus: "build", outputs: map[string]string{}}
+	if err := a.layout(g); err != nil {
+		t.Fatal(err)
+	}
+	if guard, err := g.View("guard"); err == nil && guard.Visible {
+		t.Fatal("74x23 terminal unexpectedly shows the size guard")
+	}
+	build, _ := g.View("build")
+	output, _ := g.View("output")
+	_, _, buildRight, _ := build.Dimensions()
+	outputLeft, _, _, _ := output.Dimensions()
+	if buildRight >= outputLeft {
+		t.Fatal("responsive side and output panels overlap")
+	}
+}
+
+func TestShortTerminalCollapsesUnfocusedSidePanel(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, SupportOverlaps: true, Headless: true, Width: 60, Height: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	a := &App{gui: g, focus: "build", outputs: map[string]string{}}
+	if err := a.layout(g); err != nil {
+		t.Fatal(err)
+	}
+	builds, _ := g.View("builds")
+	if _, height := builds.InnerSize(); height != 0 {
+		t.Fatalf("unfocused builds panel inner height = %d, want collapsed", height)
+	}
+	a.focus = "builds"
+	if err := a.layout(g); err != nil {
+		t.Fatal(err)
+	}
+	build, _ := g.View("build")
+	builds, _ = g.View("builds")
+	if _, height := build.InnerSize(); height != 0 {
+		t.Fatalf("unfocused build panel inner height = %d, want collapsed", height)
+	}
+	if _, height := builds.InnerSize(); height == 0 {
+		t.Fatal("focused builds panel did not expand")
 	}
 }
 
@@ -117,4 +167,59 @@ func TestSimulatorPickerCursorTracksSelectionAcrossViewport(t *testing.T) {
 	assertSelection(25)
 	assertSelection(36)
 	assertSelection(5)
+}
+
+func TestConciseBuildOutputKeepsDiagnosticsAndDropsCommands(t *testing.T) {
+	raw := `[lazy-xcode] Building App for iPhone 17 Pro
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
+CompileSwift normal arm64 /tmp/App.swift
+/tmp/App.swift:10:5: warning: value was never used
+    let unused = value
+    ^~~~~~~~~~
+SwiftEmitModule normal arm64
+** BUILD SUCCEEDED **`
+	output := conciseBuildOutput(raw)
+	for _, expected := range []string{"[lazy-xcode] Building", "warning: value was never used", "let unused", "BUILD SUCCEEDED"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("concise output missing %q:\n%s", expected, output)
+		}
+	}
+	for _, noise := range []string{"Command line invocation", "xcodebuild", "CompileSwift", "SwiftEmitModule"} {
+		if strings.Contains(output, noise) {
+			t.Fatalf("concise output retained %q:\n%s", noise, output)
+		}
+	}
+}
+
+func TestOutputVerbosityAppearsInPanelTitle(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, SupportOverlaps: true, Headless: true, Width: 100, Height: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	a := &App{
+		gui: g, focus: "output", outputs: map[string]string{"build": "[lazy-xcode] Building App\nCompileSwift App.swift\n"},
+		records: []model.BuildRecord{{ID: "build", Phase: model.PhaseBuilding, StartedAt: time.Now()}}, outputFollow: true,
+	}
+	if err := a.layout(g); err != nil {
+		t.Fatal(err)
+	}
+	output, _ := g.View("output")
+	if !strings.Contains(output.Title, "CONCISE") {
+		t.Fatalf("default output title = %q", output.Title)
+	}
+	if strings.Contains(output.Buffer(), "CompileSwift") {
+		t.Fatalf("concise output contains raw command: %q", output.Buffer())
+	}
+	a.verboseOutput = true
+	if err := a.layout(g); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.Title, "RAW") {
+		t.Fatalf("raw output title = %q", output.Title)
+	}
+	if !strings.Contains(output.Buffer(), "CompileSwift") {
+		t.Fatalf("raw output omitted command: %q", output.Buffer())
+	}
 }

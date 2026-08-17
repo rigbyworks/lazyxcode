@@ -10,7 +10,7 @@ var roundedFrame = []rune{'─', '│', '╭', '╮', '╰', '╯'}
 
 func (a *App) layout(g *gocui.Gui) error {
 	maxX, maxY := g.Size()
-	if maxX < 80 || maxY < 20 {
+	if maxX < 44 || maxY < 10 {
 		a.hideViews(g)
 		v, err := g.SetView("guard", 0, 0, maxX-1, maxY-1, 0)
 		if err != nil && !gocui.IsUnknownView(err) {
@@ -18,21 +18,17 @@ func (a *App) layout(g *gocui.Gui) error {
 		}
 		v.Visible, v.Title = true, " lazy-xcode "
 		v.Clear()
-		fmt.Fprintf(v, "Terminal is too small.\n\nCurrent: %dx%d\nRequired: 80x20", maxX, maxY)
+		fmt.Fprintf(v, "Terminal is too small.\n\nCurrent: %dx%d\nRequired: 44x10", maxX, maxY)
 		return nil
 	}
 	if v, err := g.View("guard"); err == nil {
 		v.Visible = false
 	}
-	left := maxX * 38 / 100
-	if left < 34 {
-		left = 34
-	}
-	if left > 46 {
-		left = 46
-	}
+	left := sidePanelWidth(maxX)
 	statusY := maxY - 1
-	buildBottom := 9
+	contentTop, contentBottom := 1, statusY-1
+	buildHeight := buildPanelHeight(contentBottom-contentTop+1, a.focus)
+	buildBottom := contentTop + buildHeight - 1
 	if err := a.ensureView(g, "build", 0, 1, left-1, buildBottom, "Build [1]", false); err != nil {
 		return err
 	}
@@ -40,6 +36,11 @@ func (a *App) layout(g *gocui.Gui) error {
 		return err
 	}
 	outputTitle := "Output [3]"
+	if a.verboseOutput {
+		outputTitle += " - RAW"
+	} else {
+		outputTitle += " - CONCISE"
+	}
 	if len(a.records) > 0 && a.buildIndex < len(a.records) {
 		outputTitle += " - #" + shortID(a.records[a.buildIndex].ID)
 		if a.records[a.buildIndex].Phase.Active() && a.outputFollow {
@@ -72,6 +73,24 @@ func (a *App) layout(g *gocui.Gui) error {
 	return nil
 }
 
+func sidePanelWidth(width int) int {
+	if width >= 80 {
+		return clamp(width*38/100, 34, 46)
+	}
+	return clamp(width*42/100, 22, min(30, width-22))
+}
+
+func buildPanelHeight(availableHeight int, focus string) int {
+	const collapsedHeight = 2
+	if availableHeight >= 12 {
+		return 9
+	}
+	if focus == "build" {
+		return max(collapsedHeight, availableHeight-collapsedHeight)
+	}
+	return collapsedHeight
+}
+
 func (a *App) ensureHeader(g *gocui.Gui, maxX int) error {
 	v, err := g.SetView("header", -1, -1, maxX, 1, 0)
 	if err != nil && !gocui.IsUnknownView(err) {
@@ -83,7 +102,7 @@ func (a *App) ensureHeader(g *gocui.Gui, maxX int) error {
 	if a.container.Name != "" {
 		name = a.container.Name
 	}
-	fmt.Fprintf(v, " lazy-xcode | %s", name)
+	fmt.Fprint(v, truncate(" lazy-xcode | "+name, maxX))
 	return nil
 }
 
@@ -94,11 +113,17 @@ func (a *App) ensureFooter(g *gocui.Gui, y, maxX int) error {
 	}
 	v.Visible, v.Frame, v.Wrap = true, false, false
 	v.Clear()
-	keys := " [Tab] Focus  [Enter] Select  [b] Build  [x] Stop  [r] Reload  [?] Help  [q] Quit"
+	keys := " [Tab] Focus  [Enter] Select  [b] Build  [x] Stop  [r] Reload  [v] Output  [?] Help  [q] Quit"
+	if maxX < 100 {
+		keys = " Tab Focus  Enter Select  b Build  x Stop  v Output  ? Help  q Quit"
+	}
+	if maxX < 68 {
+		keys = " Tab Focus  b Build  x Stop  v Raw  q Quit"
+	}
 	if a.status != "" {
 		keys += "  |  " + a.status
 	}
-	fmt.Fprint(v, keys)
+	fmt.Fprint(v, truncate(keys, maxX))
 	return nil
 }
 
@@ -116,8 +141,8 @@ func (a *App) ensureView(g *gocui.Gui, name string, x0, y0, x1, y1 int, title st
 }
 
 func (a *App) layoutOverlay(g *gocui.Gui, maxX, maxY int) error {
-	width := min(58, maxX-8)
-	height := min(16, maxY-6)
+	width := min(58, maxX-2)
+	height := min(16, maxY-2)
 	x0, y0 := (maxX-width)/2, (maxY-height)/2
 	x1, y1 := x0+width, y0+height
 	filterHeight := 3

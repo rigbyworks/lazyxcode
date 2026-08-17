@@ -26,12 +26,17 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 | `x` | Cancel the selected active build |
 | `c` | Clear managed DerivedData |
 | `r` | Reload schemes and simulators |
+| `v` | Toggle concise or raw build output |
 | `j`, `k`, arrows | Navigate or scroll |
 | `g`, `G` | First/last build or top/follow output |
 | `?` | Show help |
 | `q`, `Ctrl-C` | Quit |
 
 Distinct scheme/simulator pairs can build concurrently. Successful builds boot the selected simulator in the background, install the generated app, and launch it. Starting a duplicate pair while it is active is intentionally rejected because that pair shares an incremental DerivedData cache.
+
+The output pane is concise by default, showing lifecycle markers and compiler warnings or errors with source context. Press `v` to inspect the complete raw `xcodebuild` transcript; persisted logs always retain that raw output.
+
+The layout adapts to smaller terminal panes. Narrow panes keep the build controls and output side by side, while short panes collapse the unfocused Build or Builds section to its title and expand the focused section.
 
 ## State and cache
 

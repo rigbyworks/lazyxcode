@@ -46,19 +46,20 @@ type App struct {
 	sims      []model.Simulator
 	simulator int
 
-	records      []model.BuildRecord
-	buildIndex   int
-	outputs      map[string]string
-	eventNext    map[string]uint64
-	eventQueue   map[string]map[uint64]buildmanager.Event
-	focus        string
-	configRow    int
-	status       string
-	cacheSize    int64
-	loading      bool
-	outputFollow bool
-	overlay      *overlayState
-	generation   atomic.Uint64
+	records       []model.BuildRecord
+	buildIndex    int
+	outputs       map[string]string
+	eventNext     map[string]uint64
+	eventQueue    map[string]map[uint64]buildmanager.Event
+	focus         string
+	configRow     int
+	status        string
+	cacheSize     int64
+	loading       bool
+	outputFollow  bool
+	verboseOutput bool
+	overlay       *overlayState
+	generation    atomic.Uint64
 }
 
 func Run(ctx context.Context, directory string, client *xcode.Client, preferences *store.Preferences, containers []model.Container) error {

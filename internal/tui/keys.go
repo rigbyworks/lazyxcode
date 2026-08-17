@@ -25,6 +25,7 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 			binding{view, 'x', a.stopBuild},
 			binding{view, 'c', a.confirmClearCache},
 			binding{view, 'r', a.reload},
+			binding{view, 'v', a.toggleOutputVerbosity},
 			binding{view, '?', a.showHelp},
 			binding{view, 'q', a.requestQuit},
 			binding{view, gocui.KeyCtrlC, a.requestQuit},
@@ -180,6 +181,19 @@ func (a *App) reload(*gocui.Gui, *gocui.View) error {
 	return nil
 }
 
+func (a *App) toggleOutputVerbosity(g *gocui.Gui, _ *gocui.View) error {
+	a.verboseOutput = !a.verboseOutput
+	mode := "Concise"
+	if a.verboseOutput {
+		mode = "Raw"
+	}
+	a.status = mode + " build output"
+	if output, err := g.View("output"); err == nil {
+		output.SetOrigin(0, 0)
+	}
+	return nil
+}
+
 func (a *App) confirmClearCache(*gocui.Gui, *gocui.View) error {
 	if a.project == nil {
 		return nil
@@ -206,6 +220,7 @@ b                    Start a build
 x                    Stop selected active build
 c                    Clear managed DerivedData
 r                    Reload schemes and simulators
+v                    Toggle concise/raw build output
 g / G                First/last row or output position
 ?                    Show this help
 q / Ctrl-C           Quit
