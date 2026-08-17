@@ -244,9 +244,11 @@ func (a *App) requestQuit(*gocui.Gui, *gocui.View) error {
 func (a *App) scrollOutput(delta int) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, view *gocui.View) error {
 		a.outputFollow = false
-		x, y := view.Origin()
-		y = max(0, y+delta)
-		view.SetOrigin(x, y)
+		if delta > 0 {
+			view.ScrollDown(delta)
+		} else {
+			view.ScrollUp(-delta)
+		}
 		return nil
 	}
 }
@@ -258,12 +260,22 @@ func (a *App) outputEnd(bottom bool) func(*gocui.Gui, *gocui.View) error {
 			view.SetOrigin(0, 0)
 			return nil
 		}
-		_, height := view.InnerSize()
-		lines := strings.Count(view.Buffer(), "\n")
-		view.SetOrigin(0, max(0, lines-height))
+		scrollOutputToBottom(view)
 		a.outputFollow = true
 		return nil
 	}
+}
+
+func scrollOutputToBottom(view *gocui.View) {
+	_, height := view.InnerSize()
+	view.SetOrigin(0, max(0, view.ViewLinesHeight()-height))
+}
+
+func clampOutputOrigin(view *gocui.View) {
+	x, y := view.Origin()
+	_, height := view.InnerSize()
+	maximum := max(0, view.ViewLinesHeight()-height)
+	view.SetOrigin(x, clamp(y, 0, maximum))
 }
 
 func (a *App) editFilter(view *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) bool {

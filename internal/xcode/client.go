@@ -220,12 +220,12 @@ func (c *Client) Product(ctx context.Context, container model.Container, scheme 
 }
 
 func (c *Client) Boot(ctx context.Context, simulator model.Simulator) error {
-	if strings.EqualFold(simulator.State, "Booted") {
-		return nil
-	}
 	out, err := c.runner.Output(ctx, "xcrun", "simctl", "boot", simulator.ID)
 	if err != nil && !strings.Contains(string(out), "current state: Booted") {
 		return commandError("boot simulator", out, err)
+	}
+	if out, err := c.runner.Output(ctx, "open", "-a", "Simulator"); err != nil {
+		return commandError("open Simulator", out, err)
 	}
 	out, err = c.runner.Output(ctx, "xcrun", "simctl", "bootstatus", simulator.ID, "-b")
 	if err != nil {

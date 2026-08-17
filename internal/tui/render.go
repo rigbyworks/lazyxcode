@@ -99,9 +99,9 @@ func (a *App) render(g *gocui.Gui) error {
 			fmt.Fprintf(outputView, "\n[%s] %s\n", phaseLabel(record.Phase), record.Error)
 		}
 		if record.Phase.Active() && a.outputFollow {
-			_, height := outputView.InnerSize()
-			lines := strings.Count(outputView.Buffer(), "\n")
-			outputView.SetOrigin(0, max(0, lines-height))
+			scrollOutputToBottom(outputView)
+		} else {
+			clampOutputOrigin(outputView)
 		}
 	}
 	return nil

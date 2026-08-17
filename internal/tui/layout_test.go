@@ -223,3 +223,49 @@ func TestOutputVerbosityAppearsInPanelTitle(t *testing.T) {
 		t.Fatalf("raw output omitted command: %q", output.Buffer())
 	}
 }
+
+func TestOutputScrollingStopsAtRenderedContentBounds(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, Headless: true, Width: 30, Height: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	view, err := g.SetView("output", 0, 0, 29, 9, 0)
+	if err != nil && !gocui.IsUnknownView(err) {
+		t.Fatal(err)
+	}
+	view.Wrap = true
+	fmt.Fprintln(view, "short output")
+	a := &App{outputFollow: true}
+	if err := a.scrollOutput(1000)(g, view); err != nil {
+		t.Fatal(err)
+	}
+	if _, origin := view.Origin(); origin != 0 {
+		t.Fatalf("short output origin = %d, want 0", origin)
+	}
+	view.SetOrigin(0, 1000)
+	clampOutputOrigin(view)
+	if _, origin := view.Origin(); origin != 0 {
+		t.Fatalf("clamped short output origin = %d, want 0", origin)
+	}
+
+	view.Clear()
+	for i := 0; i < 30; i++ {
+		fmt.Fprintf(view, "line %02d with enough text to wrap across the view\n", i)
+	}
+	if err := a.scrollOutput(1000)(g, view); err != nil {
+		t.Fatal(err)
+	}
+	_, height := view.InnerSize()
+	_, origin := view.Origin()
+	want := max(0, view.ViewLinesHeight()-height)
+	if origin != want {
+		t.Fatalf("long output origin = %d, want %d", origin, want)
+	}
+	if err := a.scrollOutput(-1000)(g, view); err != nil {
+		t.Fatal(err)
+	}
+	if _, origin := view.Origin(); origin != 0 {
+		t.Fatalf("top origin = %d, want 0", origin)
+	}
+}

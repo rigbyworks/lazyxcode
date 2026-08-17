@@ -2,6 +2,7 @@ package xcode
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,18 +15,26 @@ import (
 
 type fakeRunner struct {
 	outputs map[string][]byte
+	errors  map[string]error
 	calls   []string
 }
 
 func (r *fakeRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
 	call := strings.Join(append([]string{name}, args...), " ")
 	r.calls = append(r.calls, call)
-	for fragment, output := range r.outputs {
+	var output []byte
+	for fragment, candidate := range r.outputs {
 		if strings.Contains(call, fragment) {
-			return output, nil
+			output = candidate
+			break
 		}
 	}
-	return nil, nil
+	for fragment, err := range r.errors {
+		if strings.Contains(call, fragment) {
+			return output, err
+		}
+	}
+	return output, nil
 }
 
 func (r *fakeRunner) Stream(_ context.Context, writer io.Writer, name string, args ...string) error {
@@ -113,5 +122,40 @@ func TestBuildCommandUsesDestinationAndManagedDerivedData(t *testing.T) {
 		if !strings.Contains(call, required) {
 			t.Fatalf("command %q missing %q", call, required)
 		}
+	}
+}
+
+func TestBootOpensSimulatorWhenDeviceIsAlreadyBooted(t *testing.T) {
+	runner := &fakeRunner{
+		outputs: map[string][]byte{"simctl boot AAAA": []byte("Unable to boot device in current state: Booted")},
+		errors:  map[string]error{"simctl boot AAAA": errors.New("exit status 149")},
+	}
+	client := New(runner)
+	if err := client.Boot(context.Background(), model.Simulator{ID: "AAAA", State: "Booted"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"xcrun simctl boot AAAA",
+		"open -a Simulator",
+		"xcrun simctl bootstatus AAAA -b",
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestBootOpensSimulatorBeforeWaitingForNewDevice(t *testing.T) {
+	runner := &fakeRunner{}
+	client := New(runner)
+	if err := client.Boot(context.Background(), model.Simulator{ID: "AAAA", State: "Shutdown"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"xcrun simctl boot AAAA",
+		"open -a Simulator",
+		"xcrun simctl bootstatus AAAA -b",
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
 	}
 }

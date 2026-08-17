@@ -99,7 +99,7 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 		m.finish(ctx, &record, model.PhaseRunFailed, err)
 		return
 	}
-	_, _ = fmt.Fprintf(writer, "\n[lazy-xcode] Build succeeded; booting %s\n", record.Simulator.Name)
+	_, _ = fmt.Fprintf(writer, "\n[lazy-xcode] Build succeeded; opening %s in Simulator\n", record.Simulator.Name)
 	if !m.stage(ctx, &record, model.PhaseBooting, func() error { return m.executor.Boot(ctx, record.Simulator) }, model.PhaseRunFailed) {
 		return
 	}
