@@ -22,6 +22,7 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 			binding{view, gocui.KeyTab, a.cycleFocus(1)},
 			binding{view, gocui.KeyBacktab, a.cycleFocus(-1)},
 			binding{view, 'b', a.startBuild},
+			binding{view, 't', a.openTestPicker},
 			binding{view, 'x', a.stopBuild},
 			binding{view, 'c', a.confirmClearCache},
 			binding{view, 'r', a.reload},
@@ -142,7 +143,7 @@ func (a *App) startBuild(*gocui.Gui, *gocui.View) error {
 		a.status = "Build is unavailable until discovery completes"
 		return nil
 	}
-	record, err := a.manager.Start(a.ctx, buildmanager.Request{Container: a.container, Scheme: a.schemes[a.scheme], Simulator: a.sims[a.simulator]})
+	record, err := a.manager.Start(a.ctx, buildmanager.Request{Container: a.container, Scheme: a.schemes[a.scheme], Simulator: a.sims[a.simulator], Operation: model.OperationBuild})
 	if err != nil {
 		a.status = err.Error()
 		return nil
@@ -155,24 +156,96 @@ func (a *App) startBuild(*gocui.Gui, *gocui.View) error {
 	return nil
 }
 
+func (a *App) openTestPicker(*gocui.Gui, *gocui.View) error {
+	if a.loading || a.manager == nil || len(a.schemes) == 0 || len(a.sims) == 0 {
+		a.status = "Tests are unavailable until discovery completes"
+		return nil
+	}
+	unit, ui := testTargetNames(a.testTargets, model.TestUnit), testTargetNames(a.testTargets, model.TestUI)
+	items := make([]overlayItem, 0, 3)
+	if len(a.testTargets) > 0 {
+		items = append(items, overlayItem{ID: "all", Label: "All Configured Tests"})
+	}
+	if len(unit) > 0 {
+		items = append(items, overlayItem{ID: "unit", Label: fmt.Sprintf("Unit Tests      %d targets", len(unit))})
+	}
+	if len(ui) > 0 {
+		items = append(items, overlayItem{ID: "ui", Label: fmt.Sprintf("UI Tests        %d targets", len(ui))})
+	}
+	if len(items) == 0 {
+		a.status = "No test targets are configured in the selected scheme"
+		return nil
+	}
+	a.overlay = &overlayState{kind: "test-scope", title: "Run Tests", items: items}
+	return nil
+}
+
+func (a *App) startTests(scope string) {
+	targets := a.testTargets
+	label := "All Tests"
+	if scope == "unit" {
+		targets, label = filterTestTargets(a.testTargets, model.TestUnit), "Unit Tests"
+	} else if scope == "ui" {
+		targets, label = filterTestTargets(a.testTargets, model.TestUI), "UI Tests"
+	}
+	names := make([]string, len(targets))
+	for i := range targets {
+		names[i] = targets[i].Name
+	}
+	if scope == "all" {
+		names = nil
+	}
+	record, err := a.manager.Start(a.ctx, buildmanager.Request{
+		Container: a.container, Scheme: a.schemes[a.scheme], Simulator: a.sims[a.simulator],
+		Operation: model.OperationTest, TestScope: label, Targets: names,
+	})
+	if err != nil {
+		a.status = err.Error()
+		return
+	}
+	a.records = append([]model.BuildRecord{record}, a.records...)
+	a.buildIndex, a.outputFollow = 0, true
+	a.outputs[record.ID] = ""
+	a.status = "Queued " + strings.ToLower(label) + " #" + shortID(record.ID)
+}
+
+func testTargetNames(targets []model.TestTarget, kind model.TestKind) []string {
+	filtered := filterTestTargets(targets, kind)
+	names := make([]string, len(filtered))
+	for i := range filtered {
+		names[i] = filtered[i].Name
+	}
+	return names
+}
+
+func filterTestTargets(targets []model.TestTarget, kind model.TestKind) []model.TestTarget {
+	result := make([]model.TestTarget, 0, len(targets))
+	for _, target := range targets {
+		if target.Kind == kind {
+			result = append(result, target)
+		}
+	}
+	return result
+}
+
 func (a *App) stopBuild(*gocui.Gui, *gocui.View) error {
 	if a.manager == nil || len(a.records) == 0 {
 		return nil
 	}
 	record := a.records[a.buildIndex]
 	if !record.Phase.Active() {
-		a.status = "Selected build is not active"
+		a.status = "Selected activity is not active"
 		return nil
 	}
 	if a.manager.Stop(record.ID) {
-		a.status = "Stopping build #" + shortID(record.ID) + "..."
+		a.status = "Stopping activity #" + shortID(record.ID) + "..."
 	}
 	return nil
 }
 
 func (a *App) reload(*gocui.Gui, *gocui.View) error {
 	if a.manager != nil && a.manager.HasActive() {
-		a.status = "Stop active builds before reloading project metadata"
+		a.status = "Stop active activities before reloading project metadata"
 		return nil
 	}
 	if a.container.Path != "" {
@@ -187,7 +260,7 @@ func (a *App) toggleOutputVerbosity(g *gocui.Gui, _ *gocui.View) error {
 	if a.verboseOutput {
 		mode = "Raw"
 	}
-	a.status = mode + " build output"
+	a.status = mode + " output"
 	if output, err := g.View("output"); err == nil {
 		output.SetOrigin(0, 0)
 	}
@@ -199,7 +272,7 @@ func (a *App) confirmClearCache(*gocui.Gui, *gocui.View) error {
 		return nil
 	}
 	if a.manager != nil && a.manager.HasActive() {
-		a.status = "Stop active builds before clearing the cache"
+		a.status = "Stop active activities before clearing the cache"
 		return nil
 	}
 	a.overlay = &overlayState{
@@ -213,14 +286,15 @@ func (a *App) confirmClearCache(*gocui.Gui, *gocui.View) error {
 func (a *App) showHelp(*gocui.Gui, *gocui.View) error {
 	a.overlay = &overlayState{kind: "help", title: "Help", message: strings.TrimSpace(`
 Tab / Shift-Tab     Cycle panes
-1 / 2 / 3           Focus Build, Builds, Output
+1 / 2 / 3           Focus Build, Activity, Output
 j / k, arrows       Navigate or scroll
 Enter                Select scheme or simulator
-b                    Start a build
+b                    Build and run
+t                    Run unit and/or UI tests
 x                    Stop selected active build
 c                    Clear managed DerivedData
 r                    Reload schemes and simulators
-v                    Toggle concise/raw build output
+v                    Toggle concise/raw output
 g / G                First/last row or output position
 ?                    Show this help
 q / Ctrl-C           Quit
@@ -232,9 +306,9 @@ Press Esc or q to close.`)}
 func (a *App) requestQuit(*gocui.Gui, *gocui.View) error {
 	if a.manager != nil && a.manager.HasActive() {
 		a.overlay = &overlayState{
-			kind: "confirm-quit", title: "Active Builds",
-			message: "Cancel all active builds and quit?\n",
-			items:   []overlayItem{{ID: "cancel", Label: "Keep working"}, {ID: "quit", Label: "Cancel builds and quit"}},
+			kind: "confirm-quit", title: "Active Activities",
+			message: "Cancel all active builds and tests and quit?\n",
+			items:   []overlayItem{{ID: "cancel", Label: "Keep working"}, {ID: "quit", Label: "Cancel activities and quit"}},
 		}
 		return nil
 	}
@@ -325,6 +399,8 @@ func (a *App) chooseOverlay(*gocui.Gui, *gocui.View) error {
 		a.simulator = simulatorIndex(a.sims, item.ID)
 		_ = a.preferences.SetSimulator(a.container.Path, a.schemes[a.scheme], item.ID)
 		a.status = "Selected " + a.sims[a.simulator].Label()
+	case "test-scope":
+		a.startTests(item.ID)
 	case "confirm-cache":
 		if item.ID == "clear" {
 			if err := a.project.ClearCache(); err != nil {

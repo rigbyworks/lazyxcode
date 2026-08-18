@@ -71,6 +71,47 @@ func TestListSchemesUsesContainerJSON(t *testing.T) {
 	}
 }
 
+func TestListTestTargetsUsesSchemeReferencesAndProductTypes(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "App.xcodeproj")
+	if err := os.MkdirAll(filepath.Join(project, "xcshareddata", "xcschemes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scheme := `<Scheme><TestAction><TestPlans><TestPlanReference reference="container:App.xctestplan"/></TestPlans><Testables>
+<TestableReference><BuildableReference BlueprintIdentifier="UNIT-ID" BlueprintName="AppTests"/></TestableReference>
+<TestableReference><BuildableReference BlueprintIdentifier="UI-ID" BlueprintName="AppUITests"/></TestableReference>
+<TestableReference skipped="YES"><BuildableReference BlueprintIdentifier="SKIP-ID" BlueprintName="SkippedTests"/></TestableReference>
+</Testables></TestAction></Scheme>`
+	if err := os.WriteFile(filepath.Join(project, "xcshareddata", "xcschemes", "App.xcscheme"), []byte(scheme), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan := `{"testTargets":[{"target":{"identifier":"PACKAGE-ID","name":"PackageTests"}},{"enabled":false,"target":{"identifier":"OFF-ID","name":"DisabledTests"}}]}`
+	if err := os.WriteFile(filepath.Join(root, "App.xctestplan"), []byte(plan), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pbx := `UNIT-ID /* AppTests */ = {
+			isa = PBXNativeTarget;
+			name = AppTests;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		UI-ID /* VisualChecks */ = {
+			isa = PBXNativeTarget;
+			name = VisualChecks;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};`
+	if err := os.WriteFile(filepath.Join(project, "project.pbxproj"), []byte(pbx), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	targets, err := New(&fakeRunner{}).ListTestTargets(model.Container{Kind: model.Project, Path: project}, "App")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []model.TestTarget{{Name: "AppTests", Kind: model.TestUnit}, {Name: "PackageTests", Kind: model.TestUnit}, {Name: "AppUITests", Kind: model.TestUI}}
+	if !reflect.DeepEqual(targets, want) {
+		t.Fatalf("targets = %#v, want %#v", targets, want)
+	}
+}
+
 func TestDestinationsAreLimitedToEligibleAvailableSimulators(t *testing.T) {
 	showDestinations := []byte(`
 	Available destinations for the "App" scheme:
@@ -119,6 +160,25 @@ func TestBuildCommandUsesDestinationAndManagedDerivedData(t *testing.T) {
 	}
 	call := runner.calls[0]
 	for _, required := range []string{"-project /tmp/App.xcodeproj", "-scheme App", "-destination id=AAAA", "-derivedDataPath /tmp/cache", "-showBuildTimingSummary", "build"} {
+		if !strings.Contains(call, required) {
+			t.Fatalf("command %q missing %q", call, required)
+		}
+	}
+}
+
+func TestTestCommandFiltersSelectedTargets(t *testing.T) {
+	runner := &fakeRunner{}
+	client := New(runner)
+	var output strings.Builder
+	err := client.Test(context.Background(), &output, model.Container{Kind: model.Workspace, Path: "/tmp/App.xcworkspace"}, "App", model.Simulator{ID: "AAAA"}, "/tmp/cache", []string{"AppTests", "ModelTests"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := runner.calls[0]
+	for _, required := range []string{
+		"-workspace /tmp/App.xcworkspace", "-scheme App", "-destination id=AAAA", "-derivedDataPath /tmp/cache",
+		"-only-testing:AppTests", "-only-testing:ModelTests", "-showBuildTimingSummary", "test",
+	} {
 		if !strings.Contains(call, required) {
 			t.Fatalf("command %q missing %q", call, required)
 		}

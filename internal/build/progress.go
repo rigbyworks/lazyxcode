@@ -83,6 +83,11 @@ func (w *progressWriter) Finish() {
 }
 
 func (w *progressWriter) observe(line string) {
+	if isTestExecutionStart(line) {
+		w.finishStep(w.now())
+		w.step = -1
+		return
+	}
 	step := buildStep(line)
 	if step < 0 || step == w.step {
 		return
@@ -92,6 +97,13 @@ func (w *progressWriter) observe(line string) {
 	w.step = step
 	w.startedAt = now
 	_, _ = fmt.Fprintf(w.destination, "%s start %d %d %s\n", progressMarker, now.UnixMilli(), step, buildStepDefinitions[step].name)
+}
+
+func isTestExecutionStart(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "Test Suite '") ||
+		strings.HasPrefix(trimmed, "◇ Test run started") ||
+		strings.HasPrefix(trimmed, "◆ Test run started")
 }
 
 func (w *progressWriter) finishStep(now time.Time) {

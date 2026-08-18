@@ -37,22 +37,43 @@ type Phase string
 const (
 	PhaseQueued      Phase = "queued"
 	PhaseBuilding    Phase = "building"
+	PhaseTesting     Phase = "testing"
 	PhaseBooting     Phase = "booting"
 	PhaseInstalling  Phase = "installing"
 	PhaseLaunching   Phase = "launching"
 	PhaseSucceeded   Phase = "succeeded"
 	PhaseBuildFailed Phase = "build_failed"
+	PhaseTestFailed  Phase = "test_failed"
 	PhaseRunFailed   Phase = "run_failed"
 	PhaseCancelled   Phase = "cancelled"
 )
 
 func (p Phase) Active() bool {
 	switch p {
-	case PhaseQueued, PhaseBuilding, PhaseBooting, PhaseInstalling, PhaseLaunching:
+	case PhaseQueued, PhaseBuilding, PhaseTesting, PhaseBooting, PhaseInstalling, PhaseLaunching:
 		return true
 	default:
 		return false
 	}
+}
+
+type Operation string
+
+const (
+	OperationBuild Operation = "build"
+	OperationTest  Operation = "test"
+)
+
+type TestKind string
+
+const (
+	TestUnit TestKind = "unit"
+	TestUI   TestKind = "ui"
+)
+
+type TestTarget struct {
+	Name string   `json:"name"`
+	Kind TestKind `json:"kind"`
 }
 
 type BuildRecord struct {
@@ -61,11 +82,21 @@ type BuildRecord struct {
 	Scheme         string     `json:"scheme"`
 	Simulator      Simulator  `json:"simulator"`
 	Phase          Phase      `json:"phase"`
+	Operation      Operation  `json:"operation,omitempty"`
+	TestScope      string     `json:"testScope,omitempty"`
+	TestTargets    []string   `json:"testTargets,omitempty"`
 	StartedAt      time.Time  `json:"startedAt"`
 	FinishedAt     *time.Time `json:"finishedAt,omitempty"`
 	Error          string     `json:"error,omitempty"`
 	DerivedDataKey string     `json:"derivedDataKey"`
 	LogPath        string     `json:"logPath"`
+}
+
+func (r BuildRecord) OperationKind() Operation {
+	if r.Operation == OperationTest {
+		return OperationTest
+	}
+	return OperationBuild
 }
 
 func (r BuildRecord) Duration(now time.Time) time.Duration {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -19,6 +20,17 @@ type fakeExecutor struct {
 func (f *fakeExecutor) Build(ctx context.Context, writer io.Writer, _ model.Container, _ string, simulator model.Simulator, _ string) error {
 	f.started <- simulator.ID
 	_, _ = io.WriteString(writer, "compile "+simulator.Name+"\n")
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-f.release:
+		return nil
+	}
+}
+
+func (f *fakeExecutor) Test(ctx context.Context, writer io.Writer, _ model.Container, _ string, simulator model.Simulator, _ string, targets []string) error {
+	f.started <- "test:" + simulator.ID
+	_, _ = io.WriteString(writer, "ran tests "+strings.Join(targets, ",")+"\n")
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -108,5 +120,41 @@ func TestStoppingOneBuildDoesNotStopAnother(t *testing.T) {
 	defer mu.Unlock()
 	if final[one.ID] != model.PhaseCancelled || final[two.ID] != model.PhaseSucceeded {
 		t.Fatalf("final phases = %#v", final)
+	}
+}
+
+func TestManagerRunsSelectedTestTargetsWithoutDeploying(t *testing.T) {
+	executor := &fakeExecutor{started: make(chan string, 1), release: make(chan struct{})}
+	var mu sync.Mutex
+	var output string
+	var final model.BuildRecord
+	manager := newTestManager(t, executor, func(event Event) {
+		mu.Lock()
+		output += event.Output
+		final = event.Record
+		mu.Unlock()
+	})
+	record, err := manager.Start(context.Background(), Request{
+		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
+		Simulator: model.Simulator{ID: "PHONE", Name: "iPhone"}, Operation: model.OperationTest,
+		TestScope: "Unit Tests", Targets: []string{"AppTests"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started := <-executor.started; started != "test:PHONE" {
+		t.Fatalf("started %q, want test operation", started)
+	}
+	close(executor.release)
+	manager.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if final.ID != record.ID || final.OperationKind() != model.OperationTest || final.Phase != model.PhaseSucceeded {
+		t.Fatalf("final record = %#v", final)
+	}
+	for _, expected := range []string{"Testing App", "Unit Tests", "ran tests AppTests"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("test output missing %q: %s", expected, output)
+		}
 	}
 }

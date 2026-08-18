@@ -21,6 +21,17 @@ var sourceDiagnosticPattern = regexp.MustCompile(`^(.+):(\d+):(\d+):\s+(fatal er
 
 var conciseDiagnosticPattern = regexp.MustCompile(`^(\s*)(fatal error|error|warning):\s+(.+?)\s+—\s+(.+)$`)
 
+var (
+	xctestSuiteStart  = regexp.MustCompile(`^Test Suite '(.+)' started`)
+	xctestSuiteFinish = regexp.MustCompile(`^Test Suite '(.+)' (passed|failed)`)
+	xctestCaseStart   = regexp.MustCompile(`^Test Case '(.+)' started`)
+	xctestCaseFinish  = regexp.MustCompile(`^Test Case '(.+)' (passed|failed) \(([0-9.]+) seconds\)`)
+	xctestCaseSuite   = regexp.MustCompile(`^[-+]\[[^.]+\.([^ ]+) `)
+	swiftSuiteStart   = regexp.MustCompile(`^[◇◆] Suite "?(.+?)"? started`)
+	swiftSuiteFinish  = regexp.MustCompile(`^[✔✘] Suite "?(.+?)"? (passed|failed) after ([0-9.]+) seconds`)
+	swiftTestIssue    = regexp.MustCompile(`^✘ Test .+ recorded an issue at (.+):(\d+):(\d+):\s+(.+)$`)
+)
+
 const (
 	ansiReset      = "\x1b[0m"
 	ansiBoldRed    = "\x1b[1;31m"
@@ -58,9 +69,9 @@ func (a *App) render(g *gocui.Gui) error {
 			prefix1 = "> "
 		}
 	}
-	button := "[b] Start build"
+	button := "[b] Build & run   [t] Test"
 	if a.loading || len(a.schemes) == 0 || len(a.sims) == 0 {
-		button = "Build unavailable"
+		button = "Build and tests unavailable"
 	}
 	if buildHeight >= 7 {
 		writeViewLine(buildView, buildWidth, "  Container   "+container)
@@ -74,7 +85,7 @@ func (a *App) render(g *gocui.Gui) error {
 			"  Project  " + container,
 			prefix0 + "Scheme   " + scheme + " [>]",
 			prefix1 + "Device   " + simulator + " [>]",
-			"  [b] Build  [c] Cache " + formatBytes(a.cacheSize),
+			"  [b] Build  [t] Test  [c] Cache " + formatBytes(a.cacheSize),
 		}
 		for i := 0; i < min(buildHeight, len(lines)); i++ {
 			writeViewLine(buildView, buildWidth, lines[i])
@@ -87,7 +98,7 @@ func (a *App) render(g *gocui.Gui) error {
 		fmt.Fprintln(buildsView, formatBuildRow(record, buildsWidth))
 	}
 	if len(a.records) == 0 {
-		fmt.Fprintln(buildsView, "  No builds yet")
+		fmt.Fprintln(buildsView, "  No activity yet")
 	}
 	buildsView.Highlight = len(a.records) > 0
 	if len(a.records) > 0 {
@@ -107,7 +118,11 @@ func (a *App) render(g *gocui.Gui) error {
 		record := a.records[a.buildIndex]
 		output := ansiPattern.ReplaceAllString(a.outputs[record.ID], "")
 		if !a.verboseOutput {
-			output = conciseBuildOutputAt(output, time.Now())
+			if record.OperationKind() == model.OperationTest {
+				output = conciseTestOutputAt(output, time.Now())
+			} else {
+				output = conciseBuildOutputAt(output, time.Now())
+			}
 		}
 		fmt.Fprint(outputView, formatBuildOutput(output))
 		if record.Error != "" {
@@ -140,19 +155,25 @@ func formatBuildOutput(output string) string {
 	for i, line := range lines {
 		lower := strings.ToLower(line)
 		switch {
-		case strings.Contains(lower, "** build failed **"):
+		case strings.Contains(lower, "** build failed **") || strings.Contains(lower, "** test failed **"):
 			lines[i] = ansiBoldRed + line + ansiReset
 			severity = diagnosticNone
-		case strings.Contains(lower, "** build succeeded **"):
+		case strings.Contains(lower, "** build succeeded **") || strings.Contains(lower, "** test succeeded **"):
 			lines[i] = ansiBoldGreen + line + ansiReset
 			severity = diagnosticNone
-		case line == "BUILD STEPS" || strings.HasPrefix(line, "DIAGNOSTICS") || line == "DEPLOYMENT":
+		case strings.HasPrefix(line, "✔ Test run with "):
+			lines[i] = ansiBoldGreen + line + ansiReset
+		case strings.HasPrefix(line, "✘ Test run with "):
+			lines[i] = ansiBoldRed + line + ansiReset
+		case line == "BUILD STEPS" || line == "BUILD PREPARATION" || strings.HasPrefix(line, "DIAGNOSTICS") || strings.HasPrefix(line, "TEST SUITES") || line == "DEPLOYMENT":
 			lines[i] = ansiBoldCyan + line + ansiReset
 			severity = diagnosticNone
 		case strings.HasPrefix(line, "  ✓ "):
 			lines[i] = colorToken(line, "✓", ansiBoldGreen)
 		case strings.HasPrefix(line, "  ● "):
 			lines[i] = colorToken(line, "●", ansiCyan)
+		case strings.HasPrefix(line, "  ✗ "):
+			lines[i] = colorToken(line, "✗", ansiBoldRed)
 		case conciseDiagnosticPattern.MatchString(line):
 			lines[i], severity = formatConciseDiagnosticLine(line)
 		case diagnosticToken(lower, "fatal error:") >= 0:
@@ -363,6 +384,230 @@ func conciseBuildOutputAt(raw string, now time.Time) string {
 	return strings.Join(result, "\n")
 }
 
+type conciseTestSuite struct {
+	name        string
+	status      string
+	currentTest string
+	passed      int
+	failed      int
+	duration    time.Duration
+}
+
+func conciseTestOutputAt(raw string, now time.Time) string {
+	lines := strings.Split(raw, "\n")
+	steps := collectConciseSteps(lines)
+	suites := make([]conciseTestSuite, 0)
+	suiteIndexes := map[string]int{}
+	diagnostics := make([]conciseDiagnostic, 0)
+	diagnosticKeys := map[string]bool{}
+	intro, outcome := "", ""
+
+	ensureSuite := func(name string) int {
+		name = strings.TrimSpace(name)
+		if index, ok := suiteIndexes[name]; ok {
+			return index
+		}
+		index := len(suites)
+		suiteIndexes[name] = index
+		suites = append(suites, conciseTestSuite{name: name})
+		return index
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[lazy-xcode]") && strings.Contains(trimmed, " Testing ") {
+			intro = trimmed
+			continue
+		}
+		if match := xctestSuiteStart.FindStringSubmatch(trimmed); match != nil {
+			index := ensureSuite(match[1])
+			suites[index].status = "running"
+			continue
+		}
+		if match := xctestSuiteFinish.FindStringSubmatch(trimmed); match != nil {
+			index := ensureSuite(match[1])
+			suites[index].status = match[2]
+			continue
+		}
+		if match := xctestCaseStart.FindStringSubmatch(trimmed); match != nil {
+			name := testSuiteForCase(match[1])
+			index := ensureSuite(name)
+			suites[index].status, suites[index].currentTest = "running", testName(match[1])
+			continue
+		}
+		if match := xctestCaseFinish.FindStringSubmatch(trimmed); match != nil {
+			index := ensureSuite(testSuiteForCase(match[1]))
+			if match[2] == "passed" {
+				suites[index].passed++
+			} else {
+				suites[index].failed++
+			}
+			suites[index].duration += parseSeconds(match[3])
+			suites[index].currentTest = ""
+			continue
+		}
+		if match := swiftSuiteStart.FindStringSubmatch(trimmed); match != nil {
+			index := ensureSuite(match[1])
+			suites[index].status = "running"
+			continue
+		}
+		if match := swiftSuiteFinish.FindStringSubmatch(trimmed); match != nil {
+			index := ensureSuite(match[1])
+			suites[index].status = match[2]
+			suites[index].duration = parseSeconds(match[3])
+			continue
+		}
+		if match := swiftTestIssue.FindStringSubmatch(trimmed); match != nil {
+			diagnostic := conciseDiagnostic{severity: "error", file: filepath.Base(match[1]), line: match[2], column: match[3], message: match[4]}
+			key := diagnostic.severity + "\x00" + diagnostic.file + "\x00" + diagnostic.line + "\x00" + diagnostic.column + "\x00" + diagnostic.message
+			if !diagnosticKeys[key] {
+				diagnosticKeys[key] = true
+				diagnostics = append(diagnostics, diagnostic)
+			}
+			continue
+		}
+		if diagnostic, ok := parseConciseDiagnostic(line); ok {
+			key := diagnostic.severity + "\x00" + diagnostic.file + "\x00" + diagnostic.line + "\x00" + diagnostic.column + "\x00" + diagnostic.message
+			if !diagnosticKeys[key] {
+				diagnosticKeys[key] = true
+				diagnostics = append(diagnostics, diagnostic)
+			}
+		}
+		if strings.Contains(trimmed, "** TEST SUCCEEDED **") || strings.Contains(trimmed, "** TEST FAILED **") ||
+			(strings.HasPrefix(trimmed, "✔ Test run with ") || strings.HasPrefix(trimmed, "✘ Test run with ")) {
+			outcome = trimmed
+		}
+	}
+
+	result := make([]string, 0, 16)
+	if intro != "" {
+		result = append(result, intro, "")
+	}
+	if len(steps) > 0 {
+		result = append(result, "BUILD PREPARATION")
+		result = append(result, formatConciseSteps(steps, now)...)
+		result = append(result, "")
+	}
+	visibleSuites := make([]conciseTestSuite, 0, len(suites))
+	for _, suite := range suites {
+		if !isAggregateTestSuite(suite.name) || suite.passed+suite.failed > 0 {
+			visibleSuites = append(visibleSuites, suite)
+		}
+	}
+	result = append(result, fmt.Sprintf("TEST SUITES (%d)", len(visibleSuites)))
+	if len(visibleSuites) == 0 {
+		result = append(result, "  ● Waiting for test suites...")
+	} else {
+		for _, suite := range visibleSuites {
+			marker := "✓"
+			if suite.status == "running" || suite.status == "" {
+				marker = "●"
+			} else if suite.status == "failed" || suite.failed > 0 {
+				marker = "✗"
+			}
+			details := suite.status
+			if suite.passed+suite.failed > 0 {
+				details = fmt.Sprintf("%d passed", suite.passed)
+				if suite.failed > 0 {
+					details += fmt.Sprintf(", %d failed", suite.failed)
+				}
+			} else if details == "" {
+				details = "running"
+			}
+			if suite.duration > 0 {
+				details += "  " + formatStepDuration(suite.duration)
+			}
+			result = append(result, fmt.Sprintf("  %s %-28s %s", marker, suite.name, details))
+			if suite.currentTest != "" {
+				result = append(result, "      ↳ "+suite.currentTest)
+			}
+		}
+	}
+	appendDiagnosticSummary(&result, diagnostics)
+	if outcome != "" {
+		result = append(result, "", outcome)
+	}
+	return strings.TrimSpace(strings.Join(result, "\n"))
+}
+
+func collectConciseSteps(lines []string) []conciseStep {
+	steps := make([]conciseStep, 0)
+	indexes := map[string]int{}
+	for _, line := range lines {
+		event, ok := parseProgressMarker(strings.TrimSpace(line))
+		if !ok {
+			continue
+		}
+		index, exists := indexes[event.name]
+		if !exists {
+			index = len(steps)
+			indexes[event.name] = index
+			steps = append(steps, conciseStep{name: event.name, order: event.order})
+		}
+		if event.done {
+			steps[index].duration, steps[index].inProgress = event.duration, false
+		} else {
+			steps[index].startedAt, steps[index].inProgress = event.startedAt, true
+		}
+	}
+	sort.SliceStable(steps, func(i, j int) bool { return steps[i].order < steps[j].order })
+	return steps
+}
+
+func formatConciseSteps(steps []conciseStep, now time.Time) []string {
+	result := make([]string, 0, len(steps))
+	for _, step := range steps {
+		duration, marker := step.duration, "✓"
+		if step.inProgress {
+			marker = "●"
+			duration += max(time.Duration(0), now.Sub(step.startedAt))
+		}
+		result = append(result, fmt.Sprintf("  %s %-22s %8s", marker, step.name, formatStepDuration(duration)))
+	}
+	return result
+}
+
+func appendDiagnosticSummary(result *[]string, diagnostics []conciseDiagnostic) {
+	if len(diagnostics) == 0 {
+		return
+	}
+	*result = append(*result, "", fmt.Sprintf("DIAGNOSTICS (%d)", len(diagnostics)))
+	for _, diagnostic := range diagnostics {
+		location := diagnostic.file
+		if diagnostic.line != "" {
+			location += ":" + diagnostic.line + ":" + diagnostic.column
+		}
+		if location == "" {
+			location = "Test run"
+		}
+		*result = append(*result, fmt.Sprintf("  %s: %s — %s", diagnostic.severity, location, diagnostic.message))
+	}
+}
+
+func testSuiteForCase(identifier string) string {
+	if match := xctestCaseSuite.FindStringSubmatch(identifier); match != nil {
+		return match[1]
+	}
+	return "Tests"
+}
+
+func testName(identifier string) string {
+	if index := strings.LastIndex(identifier, " "); index >= 0 {
+		return strings.TrimSuffix(identifier[index+1:], "]")
+	}
+	return identifier
+}
+
+func parseSeconds(value string) time.Duration {
+	seconds, _ := strconv.ParseFloat(value, 64)
+	return time.Duration(seconds * float64(time.Second))
+}
+
+func isAggregateTestSuite(name string) bool {
+	lower := strings.ToLower(name)
+	return lower == "all tests" || lower == "selected tests" || strings.HasSuffix(lower, ".xctest")
+}
+
 type progressEvent struct {
 	name      string
 	order     int
@@ -444,10 +689,30 @@ func formatStepDuration(duration time.Duration) string {
 }
 
 func formatBuildRow(record model.BuildRecord, width int) string {
-	prefix := fmt.Sprintf("%-7s #%s ", phaseLabel(record.Phase), shortID(record.ID))
+	prefix := fmt.Sprintf("%-7s #%s ", recordPhaseLabel(record), shortID(record.ID))
 	duration := formatDuration(record.Duration(time.Now()))
 	deviceWidth := max(3, width-len(prefix)-len(duration)-1)
 	return truncate(prefix+fmt.Sprintf("%-*s %s", deviceWidth, truncate(record.Simulator.Name, deviceWidth), duration), width)
+}
+
+func recordPhaseLabel(record model.BuildRecord) string {
+	if record.OperationKind() == model.OperationTest {
+		switch record.Phase {
+		case model.PhaseSucceeded:
+			return "PASS"
+		case model.PhaseTesting:
+			return "TEST"
+		case model.PhaseBooting:
+			return "BOOT"
+		case model.PhaseCancelled:
+			return "STOP"
+		case model.PhaseQueued:
+			return "QUEUE"
+		default:
+			return "FAIL"
+		}
+	}
+	return phaseLabel(record.Phase)
 }
 
 func writeViewLine(view *gocui.View, width int, line string) {
@@ -460,6 +725,8 @@ func phaseLabel(phase model.Phase) string {
 		return "QUEUE"
 	case model.PhaseBuilding:
 		return "BUILD"
+	case model.PhaseTesting:
+		return "TEST"
 	case model.PhaseBooting:
 		return "BOOT"
 	case model.PhaseInstalling:

@@ -1,8 +1,10 @@
 package xcode
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -82,6 +84,182 @@ func (c *Client) ListSchemes(ctx context.Context, container model.Container) ([]
 	}
 	sort.Strings(schemes)
 	return schemes, nil
+}
+
+func (c *Client) ListTestTargets(container model.Container, scheme string) ([]model.TestTarget, error) {
+	schemePath, err := findScheme(container, scheme)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(schemePath)
+	if err != nil {
+		return nil, fmt.Errorf("read scheme tests: %w", err)
+	}
+	var document struct {
+		TestAction struct {
+			Plans []struct {
+				Reference string `xml:"reference,attr"`
+			} `xml:"TestPlans>TestPlanReference"`
+			Testables []struct {
+				Skipped   string `xml:"skipped,attr"`
+				Reference struct {
+					ID   string `xml:"BlueprintIdentifier,attr"`
+					Name string `xml:"BlueprintName,attr"`
+				} `xml:"BuildableReference"`
+			} `xml:"Testables>TestableReference"`
+		} `xml:"TestAction"`
+	}
+	if err := xml.Unmarshal(data, &document); err != nil {
+		return nil, fmt.Errorf("parse scheme tests: %w", err)
+	}
+	root := filepath.Dir(container.Path)
+	projectFiles := findProjectFiles(root)
+	projects := make([][]byte, 0, len(projectFiles))
+	for _, path := range projectFiles {
+		if content, readErr := os.ReadFile(path); readErr == nil {
+			projects = append(projects, content)
+		}
+	}
+	references := make([]struct{ ID, Name string }, 0, len(document.TestAction.Testables))
+	for _, testable := range document.TestAction.Testables {
+		if strings.EqualFold(testable.Skipped, "YES") {
+			continue
+		}
+		references = append(references, struct{ ID, Name string }{testable.Reference.ID, testable.Reference.Name})
+	}
+	for _, plan := range document.TestAction.Plans {
+		path := strings.TrimPrefix(plan.Reference, "container:")
+		if path == plan.Reference {
+			continue
+		}
+		planData, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if readErr != nil {
+			continue
+		}
+		var payload struct {
+			Targets []struct {
+				Enabled *bool `json:"enabled"`
+				Target  struct {
+					ID   string `json:"identifier"`
+					Name string `json:"name"`
+				} `json:"target"`
+			} `json:"testTargets"`
+		}
+		if json.Unmarshal(planData, &payload) == nil {
+			for _, target := range payload.Targets {
+				if target.Enabled != nil && !*target.Enabled {
+					continue
+				}
+				references = append(references, struct{ ID, Name string }{target.Target.ID, target.Target.Name})
+			}
+		}
+	}
+	seen := map[string]bool{}
+	var targets []model.TestTarget
+	for _, reference := range references {
+		name := reference.Name
+		if name == "" || seen[name] {
+			continue
+		}
+		kind := testTargetKind(reference.ID, name, projects)
+		seen[name] = true
+		targets = append(targets, model.TestTarget{Name: name, Kind: kind})
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].Kind != targets[j].Kind {
+			return targets[i].Kind == model.TestUnit
+		}
+		return targets[i].Name < targets[j].Name
+	})
+	return targets, nil
+}
+
+func findProjectFiles(root string) []string {
+	var result []string
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", ".build", "DerivedData", "SourcePackages":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Name() == "project.pbxproj" && strings.HasSuffix(filepath.Dir(path), ".xcodeproj") {
+			result = append(result, path)
+		}
+		return nil
+	})
+	return result
+}
+
+func findScheme(container model.Container, scheme string) (string, error) {
+	direct := filepath.Join(container.Path, "xcshareddata", "xcschemes", scheme+".xcscheme")
+	if _, err := os.Stat(direct); err == nil {
+		return direct, nil
+	}
+	userSchemes, _ := filepath.Glob(filepath.Join(container.Path, "xcuserdata", "*", "xcschemes", scheme+".xcscheme"))
+	if len(userSchemes) > 0 {
+		return userSchemes[0], nil
+	}
+	root := filepath.Dir(container.Path)
+	var found string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if entry.IsDir() && (entry.Name() == "DerivedData" || entry.Name() == ".git") {
+			return filepath.SkipDir
+		}
+		if !entry.IsDir() && entry.Name() == scheme+".xcscheme" {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("find scheme tests: %w", err)
+	}
+	if found == "" {
+		return "", fmt.Errorf("test metadata unavailable for scheme %s", scheme)
+	}
+	return found, nil
+}
+
+func testTargetKind(identifier, name string, projects [][]byte) model.TestKind {
+	if identifier != "" {
+		for _, project := range projects {
+			remaining := project
+			marker := []byte(identifier + " /*")
+			for {
+				start := bytes.Index(remaining, marker)
+				if start < 0 {
+					break
+				}
+				remaining = remaining[start:]
+				end := bytes.Index(remaining, []byte("\n\t\t};"))
+				if end < 0 {
+					break
+				}
+				block := remaining[:end]
+				if bytes.Contains(block, []byte("isa = PBXNativeTarget;")) {
+					if bytes.Contains(block, []byte("com.apple.product-type.bundle.ui-testing")) {
+						return model.TestUI
+					}
+					if bytes.Contains(block, []byte("com.apple.product-type.bundle.unit-test")) {
+						return model.TestUnit
+					}
+				}
+				remaining = remaining[len(marker):]
+			}
+		}
+	}
+	if strings.Contains(strings.ToLower(name), "uitest") {
+		return model.TestUI
+	}
+	return model.TestUnit
 }
 
 func commandError(action string, output []byte, err error) error {
@@ -187,6 +365,15 @@ func parseDestinationFields(line string) map[string]string {
 
 func (c *Client) Build(ctx context.Context, writer io.Writer, container model.Container, scheme string, simulator model.Simulator, derivedData string) error {
 	args := append(containerArgs(container), "-scheme", scheme, "-destination", "id="+simulator.ID, "-derivedDataPath", derivedData, "-showBuildTimingSummary", "build")
+	return c.runner.Stream(ctx, writer, "xcodebuild", args...)
+}
+
+func (c *Client) Test(ctx context.Context, writer io.Writer, container model.Container, scheme string, simulator model.Simulator, derivedData string, targets []string) error {
+	args := append(containerArgs(container), "-scheme", scheme, "-destination", "id="+simulator.ID, "-derivedDataPath", derivedData, "-showBuildTimingSummary")
+	for _, target := range targets {
+		args = append(args, "-only-testing:"+target)
+	}
+	args = append(args, "test")
 	return c.runner.Stream(ctx, writer, "xcodebuild", args...)
 }
 

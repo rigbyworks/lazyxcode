@@ -122,7 +122,7 @@ func (p *Project) Load() ([]model.BuildRecord, error) {
 		if history.Builds[i].Phase.Active() {
 			now := time.Now()
 			history.Builds[i].Phase = model.PhaseCancelled
-			history.Builds[i].Error = "lazy-xcode exited before the build completed"
+			history.Builds[i].Error = "lazy-xcode exited before the activity completed"
 			history.Builds[i].FinishedAt = &now
 			changed = true
 		}

@@ -86,3 +86,17 @@ func TestBuildStepIgnoresEarlyPackagingCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestProgressWriterStopsBuildTimingWhenTestsBegin(t *testing.T) {
+	var output bytes.Buffer
+	now := time.Unix(100, 0)
+	writer := newProgressWriter(&output, func() time.Time { return now })
+	_, _ = writer.Write([]byte("CodeSign /tmp/App.app\n"))
+	now = now.Add(2 * time.Second)
+	_, _ = writer.Write([]byte("Test Suite 'All tests' started at 2026-08-17.\n"))
+	now = now.Add(10 * time.Second)
+	writer.Finish()
+	if !strings.Contains(output.String(), progressMarker+" done 2000 7 Sign") {
+		t.Fatalf("test execution was included in build timing:\n%s", output.String())
+	}
+}

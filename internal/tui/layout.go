@@ -32,7 +32,7 @@ func (a *App) layout(g *gocui.Gui) error {
 	if err := a.ensureView(g, "build", 0, 1, left-1, buildBottom, "Build [1]", false); err != nil {
 		return err
 	}
-	if err := a.ensureView(g, "builds", 0, buildBottom+1, left-1, statusY-1, "Builds [2]", true); err != nil {
+	if err := a.ensureView(g, "builds", 0, buildBottom+1, left-1, statusY-1, "Activity [2]", true); err != nil {
 		return err
 	}
 	outputTitle := "Output [3]"
@@ -113,12 +113,12 @@ func (a *App) ensureFooter(g *gocui.Gui, y, maxX int) error {
 	}
 	v.Visible, v.Frame, v.Wrap = true, false, false
 	v.Clear()
-	keys := " [Tab] Focus  [Enter] Select  [b] Build  [x] Stop  [r] Reload  [v] Output  [?] Help  [q] Quit"
+	keys := " [Tab] Focus  [Enter] Select  [b] Build  [t] Test  [x] Stop  [r] Reload  [v] Output  [?] Help  [q] Quit"
 	if maxX < 100 {
-		keys = " Tab Focus  Enter Select  b Build  x Stop  v Output  ? Help  q Quit"
+		keys = " Tab Focus  Enter Select  b Build  t Test  x Stop  v Output  ? Help  q Quit"
 	}
 	if maxX < 68 {
-		keys = " Tab Focus  b Build  x Stop  v Raw  q Quit"
+		keys = " Tab Focus  b Build  t Test  x Stop  v Raw  q Quit"
 	}
 	if a.status != "" {
 		keys += "  |  " + a.status

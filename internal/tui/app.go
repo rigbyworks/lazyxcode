@@ -36,15 +36,16 @@ type App struct {
 	preferences *store.Preferences
 	containers  []model.Container
 
-	gui       *gocui.Gui
-	closing   atomic.Bool
-	container model.Container
-	project   *store.Project
-	manager   *buildmanager.Manager
-	schemes   []string
-	scheme    int
-	sims      []model.Simulator
-	simulator int
+	gui         *gocui.Gui
+	closing     atomic.Bool
+	container   model.Container
+	project     *store.Project
+	manager     *buildmanager.Manager
+	schemes     []string
+	scheme      int
+	sims        []model.Simulator
+	simulator   int
+	testTargets []model.TestTarget
 
 	records       []model.BuildRecord
 	buildIndex    int
@@ -206,6 +207,7 @@ func (a *App) loadSimulators() {
 	generation := a.generation.Add(1)
 	go func() {
 		simulators, err := a.xcode.ListSimulators(a.ctx, container, scheme)
+		testTargets, testErr := a.xcode.ListTestTargets(container, scheme)
 		a.update(func() {
 			if generation != a.generation.Load() {
 				return
@@ -216,14 +218,17 @@ func (a *App) loadSimulators() {
 				return
 			}
 			a.sims = simulators
+			a.testTargets = testTargets
 			a.simulator = simulatorIndex(simulators, a.preferences.Simulator(container.Path, scheme))
 			if a.simulator < 0 {
 				a.simulator = 0
 			}
 			if len(simulators) == 0 {
 				a.status = "No compatible installed simulators"
+			} else if testErr != nil || len(testTargets) == 0 {
+				a.status = fmt.Sprintf("Ready - %d simulators; no tests discovered", len(simulators))
 			} else {
-				a.status = fmt.Sprintf("Ready - %d compatible simulators", len(simulators))
+				a.status = fmt.Sprintf("Ready - %d simulators, %d test targets", len(simulators), len(testTargets))
 			}
 			a.refreshCacheSize(project)
 		})
@@ -325,7 +330,7 @@ func statusForRecord(record model.BuildRecord) string {
 	if record.Error != "" {
 		return strings.ReplaceAll(record.Error, "\n", " ")
 	}
-	return fmt.Sprintf("%s - %s on %s", phaseLabel(record.Phase), record.Scheme, record.Simulator.Name)
+	return fmt.Sprintf("%s - %s on %s", recordPhaseLabel(record), record.Scheme, record.Simulator.Name)
 }
 
 func (a *App) loadSelectedOutput() {

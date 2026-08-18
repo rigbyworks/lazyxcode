@@ -169,6 +169,40 @@ func TestSimulatorPickerCursorTracksSelectionAcrossViewport(t *testing.T) {
 	assertSelection(5)
 }
 
+func TestTestPickerOffersDiscoveredScopes(t *testing.T) {
+	a := &App{
+		manager: &buildmanager.Manager{}, schemes: []string{"App"}, sims: []model.Simulator{{ID: "PHONE"}},
+		testTargets: []model.TestTarget{
+			{Name: "AppTests", Kind: model.TestUnit},
+			{Name: "ModelTests", Kind: model.TestUnit},
+			{Name: "AppUITests", Kind: model.TestUI},
+		},
+	}
+	if err := a.openTestPicker(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if a.overlay == nil || a.overlay.kind != "test-scope" {
+		t.Fatalf("test picker = %#v", a.overlay)
+	}
+	want := []string{"all", "unit", "ui"}
+	for i, id := range want {
+		if a.overlay.items[i].ID != id {
+			t.Fatalf("picker item %d = %#v, want %q", i, a.overlay.items[i], id)
+		}
+	}
+}
+
+func TestTestActivityRowsUseTestSpecificStatuses(t *testing.T) {
+	record := model.BuildRecord{ID: "123-001", Operation: model.OperationTest, Phase: model.PhaseSucceeded, Simulator: model.Simulator{Name: "iPhone"}, StartedAt: time.Now()}
+	if row := formatBuildRow(record, 50); !strings.HasPrefix(row, "PASS") {
+		t.Fatalf("successful test row = %q", row)
+	}
+	record.Phase = model.PhaseTesting
+	if row := formatBuildRow(record, 50); !strings.HasPrefix(row, "TEST") {
+		t.Fatalf("active test row = %q", row)
+	}
+}
+
 func TestConciseBuildOutputSummarizesStepsAndDeduplicatesDiagnostics(t *testing.T) {
 	raw := `[lazy-xcode] Building App for iPhone 17 Pro
 Command line invocation:
@@ -218,6 +252,54 @@ func TestConciseBuildOutputUpdatesActiveStepElapsedTime(t *testing.T) {
 	for _, expected := range []string{"● Compile sources", "4.2s"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("active output missing %q: %s", expected, output)
+		}
+	}
+}
+
+func TestConciseXCTestOutputShowsSuiteResultsAndFailures(t *testing.T) {
+	raw := `[lazy-xcode] Testing App on iPhone 17 Pro (26.0) — Unit Tests
+[lazy-xcode:step] start 100000 4 Compile sources
+[lazy-xcode:step] done 2400 4 Compile sources
+Test Suite 'Selected tests' started at 2026-08-17 10:00:00.000.
+Test Suite 'AppTests.xctest' started at 2026-08-17 10:00:00.000.
+Test Suite 'LoginTests' started at 2026-08-17 10:00:00.000.
+Test Case '-[AppTests.LoginTests testValidLogin]' started.
+Test Case '-[AppTests.LoginTests testValidLogin]' passed (0.200 seconds).
+Test Case '-[AppTests.LoginTests testInvalidLogin]' started.
+/tmp/LoginTests.swift:42:7: error: -[AppTests.LoginTests testInvalidLogin] : XCTAssertTrue failed
+Test Case '-[AppTests.LoginTests testInvalidLogin]' failed (1.300 seconds).
+Test Suite 'LoginTests' failed at 2026-08-17 10:00:01.500.
+Test Suite 'AppTests.xctest' failed at 2026-08-17 10:00:01.500.
+Test Suite 'Selected tests' failed at 2026-08-17 10:00:01.500.
+** TEST FAILED **`
+	output := conciseTestOutputAt(raw, time.UnixMilli(105000))
+	for _, expected := range []string{
+		"BUILD PREPARATION", "Compile sources", "2.4s", "TEST SUITES (1)",
+		"✗ LoginTests", "1 passed, 1 failed", "1.5s",
+		"DIAGNOSTICS (1)", "error: LoginTests.swift:42:7", "XCTAssertTrue failed", "TEST FAILED",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("test summary missing %q:\n%s", expected, output)
+		}
+	}
+	for _, aggregate := range []string{"Selected tests", "AppTests.xctest"} {
+		if strings.Contains(output, aggregate) {
+			t.Fatalf("test summary retained aggregate suite %q:\n%s", aggregate, output)
+		}
+	}
+}
+
+func TestConciseSwiftTestingOutputShowsSuiteResult(t *testing.T) {
+	raw := `[lazy-xcode] Testing App on iPhone 17 Pro (26.0) — Unit Tests
+◇ Suite SearchResultTests started.
+◇ Test lookupCoverArt started.
+✔ Test lookupCoverArt passed after 0.001 seconds.
+✔ Suite SearchResultTests passed after 0.002 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.003 seconds.`
+	output := conciseTestOutputAt(raw, time.Now())
+	for _, expected := range []string{"TEST SUITES (1)", "✓ SearchResultTests", "passed", "2ms", "Test run with 1 test"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("Swift Testing summary missing %q:\n%s", expected, output)
 		}
 	}
 }

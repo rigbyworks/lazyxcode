@@ -16,6 +16,7 @@ import (
 
 type Executor interface {
 	Build(context.Context, io.Writer, model.Container, string, model.Simulator, string) error
+	Test(context.Context, io.Writer, model.Container, string, model.Simulator, string, []string) error
 	Product(context.Context, model.Container, string, model.Simulator, string) (model.Product, error)
 	Boot(context.Context, model.Simulator) error
 	Install(context.Context, model.Simulator, model.Product) error
@@ -32,6 +33,9 @@ type Request struct {
 	Container model.Container
 	Scheme    string
 	Simulator model.Simulator
+	Operation model.Operation
+	TestScope string
+	Targets   []string
 }
 
 type Manager struct {
@@ -55,14 +59,15 @@ func (m *Manager) Start(parent context.Context, request Request) (model.BuildRec
 	m.mu.Lock()
 	if id := m.active[key]; id != "" {
 		m.mu.Unlock()
-		return model.BuildRecord{}, fmt.Errorf("a build for %s on %s is already active", request.Scheme, request.Simulator.Name)
+		return model.BuildRecord{}, fmt.Errorf("an activity for %s on %s is already active", request.Scheme, request.Simulator.Name)
 	}
 	id := fmt.Sprintf("%d-%03d", time.Now().UnixMilli(), m.sequence.Add(1))
 	derivedData := m.store.DerivedData(request.Scheme, request.Simulator.ID)
 	ctx, cancel := context.WithCancel(parent)
 	record := model.BuildRecord{
 		ID: id, Container: request.Container, Scheme: request.Scheme, Simulator: request.Simulator,
-		Phase: model.PhaseQueued, StartedAt: time.Now(), DerivedDataKey: derivedData,
+		Phase: model.PhaseQueued, Operation: request.Operation, TestScope: request.TestScope, TestTargets: request.Targets,
+		StartedAt: time.Now(), DerivedDataKey: derivedData,
 	}
 	m.jobs[id] = cancel
 	m.active[key] = id
@@ -87,6 +92,10 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 	defer logFile.Close()
 	defer m.release(record, key)
 	writer := &eventWriter{file: logFile, record: &record, emit: m.emit}
+	if record.OperationKind() == model.OperationTest {
+		m.runTests(ctx, &record, writer)
+		return
+	}
 	_, _ = fmt.Fprintf(writer, "[lazy-xcode] Building %s for %s\n\n", record.Scheme, record.Simulator.Label())
 
 	if !m.stage(ctx, &record, model.PhaseBuilding, func() error {
@@ -115,6 +124,27 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 		return
 	}
 	m.finish(ctx, &record, model.PhaseSucceeded, nil)
+}
+
+func (m *Manager) runTests(ctx context.Context, record *model.BuildRecord, writer *eventWriter) {
+	scope := record.TestScope
+	if scope == "" {
+		scope = "All Tests"
+	}
+	_, _ = fmt.Fprintf(writer, "[lazy-xcode] Testing %s on %s — %s\n\n", record.Scheme, record.Simulator.Label(), scope)
+	_, _ = fmt.Fprintln(writer, "[lazy-xcode] Opening simulator for tests")
+	if !m.stage(ctx, record, model.PhaseBooting, func() error { return m.executor.Boot(ctx, record.Simulator) }, model.PhaseRunFailed) {
+		return
+	}
+	if !m.stage(ctx, record, model.PhaseTesting, func() error {
+		progress := newProgressWriter(writer, time.Now)
+		err := m.executor.Test(ctx, progress, record.Container, record.Scheme, record.Simulator, record.DerivedDataKey, record.TestTargets)
+		progress.Finish()
+		return err
+	}, model.PhaseTestFailed) {
+		return
+	}
+	m.finish(ctx, record, model.PhaseSucceeded, nil)
 }
 
 func (m *Manager) stage(ctx context.Context, record *model.BuildRecord, phase model.Phase, action func() error, failure model.Phase) bool {
