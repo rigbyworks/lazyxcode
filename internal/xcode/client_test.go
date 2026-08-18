@@ -118,7 +118,7 @@ func TestBuildCommandUsesDestinationAndManagedDerivedData(t *testing.T) {
 		t.Fatal(err)
 	}
 	call := runner.calls[0]
-	for _, required := range []string{"-project /tmp/App.xcodeproj", "-scheme App", "-destination id=AAAA", "-derivedDataPath /tmp/cache", "build"} {
+	for _, required := range []string{"-project /tmp/App.xcodeproj", "-scheme App", "-destination id=AAAA", "-derivedDataPath /tmp/cache", "-showBuildTimingSummary", "build"} {
 		if !strings.Contains(call, required) {
 			t.Fatalf("command %q missing %q", call, required)
 		}

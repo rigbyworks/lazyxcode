@@ -2,7 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,11 +17,16 @@ var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 var diagnosticLocationPattern = regexp.MustCompile(`^(.+:\d+:\d+:)(.*)$`)
 
+var sourceDiagnosticPattern = regexp.MustCompile(`^(.+):(\d+):(\d+):\s+(fatal error|error|warning):\s+(.+)$`)
+
+var conciseDiagnosticPattern = regexp.MustCompile(`^(\s*)(fatal error|error|warning):\s+(.+?)\s+—\s+(.+)$`)
+
 const (
 	ansiReset      = "\x1b[0m"
 	ansiBoldRed    = "\x1b[1;31m"
 	ansiBoldYellow = "\x1b[1;33m"
 	ansiBoldGreen  = "\x1b[1;32m"
+	ansiBoldCyan   = "\x1b[1;36m"
 	ansiCyan       = "\x1b[36m"
 )
 
@@ -99,7 +107,7 @@ func (a *App) render(g *gocui.Gui) error {
 		record := a.records[a.buildIndex]
 		output := ansiPattern.ReplaceAllString(a.outputs[record.ID], "")
 		if !a.verboseOutput {
-			output = conciseBuildOutput(output)
+			output = conciseBuildOutputAt(output, time.Now())
 		}
 		fmt.Fprint(outputView, formatBuildOutput(output))
 		if record.Error != "" {
@@ -138,6 +146,15 @@ func formatBuildOutput(output string) string {
 		case strings.Contains(lower, "** build succeeded **"):
 			lines[i] = ansiBoldGreen + line + ansiReset
 			severity = diagnosticNone
+		case line == "BUILD STEPS" || strings.HasPrefix(line, "DIAGNOSTICS") || line == "DEPLOYMENT":
+			lines[i] = ansiBoldCyan + line + ansiReset
+			severity = diagnosticNone
+		case strings.HasPrefix(line, "  ✓ "):
+			lines[i] = colorToken(line, "✓", ansiBoldGreen)
+		case strings.HasPrefix(line, "  ● "):
+			lines[i] = colorToken(line, "●", ansiCyan)
+		case conciseDiagnosticPattern.MatchString(line):
+			lines[i], severity = formatConciseDiagnosticLine(line)
 		case diagnosticToken(lower, "fatal error:") >= 0:
 			lines[i] = formatDiagnosticLine(line, "fatal error:", ansiBoldRed)
 			severity = diagnosticError
@@ -166,6 +183,19 @@ func formatBuildOutput(output string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatConciseDiagnosticLine(line string) (string, diagnosticSeverity) {
+	match := conciseDiagnosticPattern.FindStringSubmatch(line)
+	if match == nil {
+		return line, diagnosticNone
+	}
+	color, severity := ansiBoldYellow, diagnosticWarning
+	if match[2] == "error" || match[2] == "fatal error" {
+		color, severity = ansiBoldRed, diagnosticError
+	}
+	formatted := match[1] + color + match[2] + ":" + ansiReset + " " + ansiCyan + match[3] + ansiReset + " — " + match[4]
+	return formatted, severity
 }
 
 func formatDiagnosticLine(line, token, color string) string {
@@ -212,49 +242,205 @@ func isDiagnosticPointer(line string) bool {
 	return strings.Trim(trimmed, "^~ ") == ""
 }
 
-func conciseBuildOutput(raw string) string {
-	lines := strings.Split(raw, "\n")
-	result := make([]string, 0, len(lines)/10)
-	contextLines := 0
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		diagnostic := isBuildDiagnostic(trimmed)
-		include := strings.HasPrefix(trimmed, "[lazy-xcode]") ||
-			diagnostic ||
-			strings.Contains(trimmed, "** BUILD SUCCEEDED **") ||
-			strings.Contains(trimmed, "** BUILD FAILED **")
-		if diagnostic {
-			contextLines = 3
-		} else if contextLines > 0 {
-			if trimmed == "" {
-				contextLines = 0
-			} else if line == strings.TrimLeft(line, " \t") && !strings.Contains(strings.ToLower(line), "note:") {
-				contextLines = 0
-			} else {
-				include = true
-				contextLines--
-			}
-		}
-		if !include {
-			continue
-		}
-		if trimmed == "" && (len(result) == 0 || result[len(result)-1] == "") {
-			continue
-		}
-		result = append(result, line)
-	}
-	return strings.TrimSpace(strings.Join(result, "\n"))
+type conciseDiagnostic struct {
+	severity string
+	file     string
+	line     string
+	column   string
+	message  string
 }
 
-func isBuildDiagnostic(line string) bool {
+type conciseStep struct {
+	name       string
+	order      int
+	duration   time.Duration
+	startedAt  time.Time
+	inProgress bool
+}
+
+func conciseBuildOutputAt(raw string, now time.Time) string {
+	lines := strings.Split(raw, "\n")
+	diagnostics := make([]conciseDiagnostic, 0)
+	diagnosticKeys := map[string]bool{}
+	steps := make([]conciseStep, 0)
+	stepIndexes := map[string]int{}
+	deployment := make([]string, 0, 3)
+	result := make([]string, 0, 16)
+	intro := ""
+	buildOutcome := ""
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if event, ok := parseProgressMarker(trimmed); ok {
+			index, exists := stepIndexes[event.name]
+			if !exists {
+				index = len(steps)
+				stepIndexes[event.name] = index
+				steps = append(steps, conciseStep{name: event.name, order: event.order})
+			}
+			if event.done {
+				steps[index].duration = event.duration
+				steps[index].inProgress = false
+			} else {
+				steps[index].startedAt = event.startedAt
+				steps[index].inProgress = true
+			}
+			continue
+		}
+		if diagnostic, ok := parseConciseDiagnostic(line); ok {
+			key := diagnostic.severity + "\x00" + diagnostic.file + "\x00" + diagnostic.line + "\x00" + diagnostic.column + "\x00" + diagnostic.message
+			if !diagnosticKeys[key] {
+				diagnosticKeys[key] = true
+				diagnostics = append(diagnostics, diagnostic)
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[lazy-xcode]") {
+			if strings.Contains(trimmed, " Building ") {
+				intro = trimmed
+			} else if strings.Contains(trimmed, "Build succeeded;") || strings.Contains(trimmed, "Installing app") || strings.Contains(trimmed, "Launching ") {
+				deployment = append(deployment, trimmed)
+			}
+			continue
+		}
+		if strings.Contains(trimmed, "** BUILD SUCCEEDED **") || strings.Contains(trimmed, "** BUILD FAILED **") {
+			buildOutcome = trimmed
+		}
+	}
+
+	if intro != "" {
+		result = append(result, intro, "")
+	}
+	if len(steps) > 0 {
+		sort.SliceStable(steps, func(i, j int) bool { return steps[i].order < steps[j].order })
+		result = append(result, "BUILD STEPS")
+		for _, step := range steps {
+			duration := step.duration
+			marker := "✓"
+			if step.inProgress {
+				marker = "●"
+				duration += max(time.Duration(0), now.Sub(step.startedAt))
+			}
+			result = append(result, fmt.Sprintf("  %s %-22s %8s", marker, step.name, formatStepDuration(duration)))
+		}
+	}
+
+	if len(diagnostics) > 0 {
+		if len(result) > 0 {
+			result = append(result, "")
+		}
+		result = append(result, fmt.Sprintf("DIAGNOSTICS (%d)", len(diagnostics)))
+		for _, diagnostic := range diagnostics {
+			location := diagnostic.file
+			if diagnostic.line != "" {
+				location += ":" + diagnostic.line + ":" + diagnostic.column
+			}
+			if location == "" {
+				location = "Build"
+			}
+			result = append(result, fmt.Sprintf("  %s: %s — %s", diagnostic.severity, location, diagnostic.message))
+		}
+	}
+
+	if len(deployment) > 0 {
+		if len(result) > 0 {
+			result = append(result, "")
+		}
+		result = append(result, "DEPLOYMENT")
+		for _, line := range deployment {
+			result = append(result, "  "+line)
+		}
+	}
+	if buildOutcome != "" {
+		if len(result) > 0 {
+			result = append(result, "")
+		}
+		result = append(result, buildOutcome)
+	}
+	if len(result) == 0 {
+		return "Waiting for build activity..."
+	}
+	return strings.Join(result, "\n")
+}
+
+type progressEvent struct {
+	name      string
+	order     int
+	startedAt time.Time
+	duration  time.Duration
+	done      bool
+}
+
+func parseProgressMarker(line string) (progressEvent, bool) {
+	parts := strings.SplitN(line, " ", 5)
+	if len(parts) != 5 || parts[0] != "[lazy-xcode:step]" {
+		return progressEvent{}, false
+	}
+	value, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return progressEvent{}, false
+	}
+	order, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return progressEvent{}, false
+	}
+	event := progressEvent{name: parts[4], order: order}
+	switch parts[1] {
+	case "start":
+		event.startedAt = time.UnixMilli(value)
+	case "done":
+		event.duration = time.Duration(value) * time.Millisecond
+		event.done = true
+	default:
+		return progressEvent{}, false
+	}
+	return event, true
+}
+
+func parseConciseDiagnostic(line string) (conciseDiagnostic, bool) {
+	trimmed := strings.TrimSpace(line)
+	if match := sourceDiagnosticPattern.FindStringSubmatch(trimmed); match != nil {
+		return conciseDiagnostic{
+			severity: match[4], file: filepath.Base(match[1]), line: match[2], column: match[3], message: match[5],
+		}, true
+	}
+	lowerTrimmed := strings.ToLower(trimmed)
+	if strings.HasPrefix(lowerTrimmed, "ld:") {
+		return conciseDiagnostic{severity: "error", file: "Linker", message: strings.TrimSpace(trimmed[len("ld:"):])}, true
+	}
+	for _, fragment := range []string{
+		"undefined symbols for architecture",
+		"duplicate symbol",
+		"failed with a nonzero exit code",
+		"the following build commands failed:",
+	} {
+		if strings.Contains(lowerTrimmed, fragment) {
+			return conciseDiagnostic{severity: "error", message: trimmed}, true
+		}
+	}
 	lower := strings.ToLower(line)
-	return strings.Contains(lower, " error:") || strings.HasPrefix(lower, "error:") ||
-		strings.Contains(lower, " warning:") || strings.HasPrefix(lower, "warning:") ||
-		strings.Contains(lower, "fatal error:") || strings.HasPrefix(lower, "ld:") ||
-		strings.Contains(lower, "undefined symbols for architecture") ||
-		strings.Contains(lower, "duplicate symbol") ||
-		strings.Contains(lower, "failed with a nonzero exit code") ||
-		strings.HasPrefix(lower, "the following build commands failed:")
+	for _, severity := range []string{"fatal error", "error", "warning"} {
+		token := severity + ":"
+		index := diagnosticToken(lower, token)
+		if index < 0 {
+			continue
+		}
+		message := strings.TrimSpace(line[index+len(token):])
+		if message != "" {
+			return conciseDiagnostic{severity: severity, message: message}, true
+		}
+	}
+	return conciseDiagnostic{}, false
+}
+
+func formatStepDuration(duration time.Duration) string {
+	if duration < time.Second {
+		return fmt.Sprintf("%dms", duration.Milliseconds())
+	}
+	if duration < time.Minute {
+		return fmt.Sprintf("%.1fs", duration.Seconds())
+	}
+	return fmt.Sprintf("%dm%02ds", int(duration.Minutes()), int(duration.Seconds())%60)
 }
 
 func formatBuildRow(record model.BuildRecord, width int) string {

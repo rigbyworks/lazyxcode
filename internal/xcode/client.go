@@ -186,7 +186,7 @@ func parseDestinationFields(line string) map[string]string {
 }
 
 func (c *Client) Build(ctx context.Context, writer io.Writer, container model.Container, scheme string, simulator model.Simulator, derivedData string) error {
-	args := append(containerArgs(container), "-scheme", scheme, "-destination", "id="+simulator.ID, "-derivedDataPath", derivedData, "build")
+	args := append(containerArgs(container), "-scheme", scheme, "-destination", "id="+simulator.ID, "-derivedDataPath", derivedData, "-showBuildTimingSummary", "build")
 	return c.runner.Stream(ctx, writer, "xcodebuild", args...)
 }
 

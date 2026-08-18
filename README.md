@@ -34,7 +34,7 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 
 Distinct scheme/simulator pairs can build concurrently. Successful builds boot the selected device, open Simulator.app, install the generated app, and launch it. Starting a duplicate pair while it is active is intentionally rejected because that pair shares an incremental DerivedData cache.
 
-The output pane is concise by default, showing lifecycle markers and compiler warnings or errors with source context. Press `v` to inspect the complete raw `xcodebuild` transcript; persisted logs always retain that raw output.
+The output pane is concise by default. It shows live, wall-clock build phases and a deduplicated list of warnings and errors using compact `file:line:column — message` entries. Press `v` to inspect the complete raw `xcodebuild` transcript and Xcode's detailed command timing summary; persisted logs retain both the raw output and phase timings.
 
 The layout adapts to smaller terminal panes. Narrow panes keep the build controls and output side by side, while short panes collapse the unfocused Build or Builds section to its title and expand the focused section.
 

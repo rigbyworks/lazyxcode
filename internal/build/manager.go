@@ -90,7 +90,10 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 	_, _ = fmt.Fprintf(writer, "[lazy-xcode] Building %s for %s\n\n", record.Scheme, record.Simulator.Label())
 
 	if !m.stage(ctx, &record, model.PhaseBuilding, func() error {
-		return m.executor.Build(ctx, writer, record.Container, record.Scheme, record.Simulator, record.DerivedDataKey)
+		progress := newProgressWriter(writer, time.Now)
+		err := m.executor.Build(ctx, progress, record.Container, record.Scheme, record.Simulator, record.DerivedDataKey)
+		progress.Finish()
+		return err
 	}, model.PhaseBuildFailed) {
 		return
 	}

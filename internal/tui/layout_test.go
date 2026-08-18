@@ -169,25 +169,55 @@ func TestSimulatorPickerCursorTracksSelectionAcrossViewport(t *testing.T) {
 	assertSelection(5)
 }
 
-func TestConciseBuildOutputKeepsDiagnosticsAndDropsCommands(t *testing.T) {
+func TestConciseBuildOutputSummarizesStepsAndDeduplicatesDiagnostics(t *testing.T) {
 	raw := `[lazy-xcode] Building App for iPhone 17 Pro
 Command line invocation:
     /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
-CompileSwift normal arm64 /tmp/App.swift
+[lazy-xcode:step] start 100000 1 Plan build
+[lazy-xcode:step] done 1200 1 Plan build
+[lazy-xcode:step] start 101200 4 Compile sources
 /tmp/App.swift:10:5: warning: value was never used
-    let unused = value
-    ^~~~~~~~~~
-SwiftEmitModule normal arm64
-** BUILD SUCCEEDED **`
-	output := conciseBuildOutput(raw)
-	for _, expected := range []string{"[lazy-xcode] Building", "warning: value was never used", "let unused", "BUILD SUCCEEDED"} {
+/tmp/App.swift:10:5: warning: value was never used
+2026-08-17 tool[123] warning: metadata was skipped
+ld: library 'MissingKit' not found
+[lazy-xcode:step] done 3800 4 Compile sources
+** BUILD SUCCEEDED **
+[lazy-xcode] Installing app`
+	output := conciseBuildOutputAt(raw, time.UnixMilli(105000))
+	for _, expected := range []string{
+		"BUILD STEPS",
+		"✓ Plan build",
+		"1.2s",
+		"✓ Compile sources",
+		"3.8s",
+		"DIAGNOSTICS (3)",
+		"warning: App.swift:10:5 — value was never used",
+		"warning: Build — metadata was skipped",
+		"error: Linker — library 'MissingKit' not found",
+		"DEPLOYMENT",
+		"Installing app",
+		"BUILD SUCCEEDED",
+	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("concise output missing %q:\n%s", expected, output)
 		}
 	}
-	for _, noise := range []string{"Command line invocation", "xcodebuild", "CompileSwift", "SwiftEmitModule"} {
+	if strings.Count(output, "value was never used") != 1 {
+		t.Fatalf("diagnostic was not deduplicated:\n%s", output)
+	}
+	for _, noise := range []string{"Command line invocation", "xcodebuild", "/tmp/App.swift"} {
 		if strings.Contains(output, noise) {
 			t.Fatalf("concise output retained %q:\n%s", noise, output)
+		}
+	}
+}
+
+func TestConciseBuildOutputUpdatesActiveStepElapsedTime(t *testing.T) {
+	raw := "[lazy-xcode:step] start 100000 4 Compile sources\n"
+	output := conciseBuildOutputAt(raw, time.UnixMilli(104250))
+	for _, expected := range []string{"● Compile sources", "4.2s"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("active output missing %q: %s", expected, output)
 		}
 	}
 }
@@ -222,13 +252,16 @@ let unused = value
 }
 
 func TestBuildOutputFormatsSuccessAndLifecycleMessages(t *testing.T) {
-	plain := "[lazy-xcode] Installing app\n** BUILD SUCCEEDED **"
+	plain := "[lazy-xcode] Installing app\n  warning: App.swift:10:5 — value was never used\n** BUILD SUCCEEDED **"
 	formatted := formatBuildOutput(plain)
 	if !strings.Contains(formatted, ansiCyan+"[lazy-xcode]"+ansiReset) {
 		t.Fatalf("lifecycle prefix not formatted: %q", formatted)
 	}
 	if !strings.Contains(formatted, ansiBoldGreen+"** BUILD SUCCEEDED **"+ansiReset) {
 		t.Fatalf("success marker not formatted: %q", formatted)
+	}
+	if !strings.Contains(formatted, ansiBoldYellow+"warning:"+ansiReset+" "+ansiCyan+"App.swift:10:5"+ansiReset) {
+		t.Fatalf("concise diagnostic not formatted: %q", formatted)
 	}
 }
 
