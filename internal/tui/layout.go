@@ -141,12 +141,12 @@ func (a *App) ensureView(g *gocui.Gui, name string, x0, y0, x1, y1 int, title st
 }
 
 func (a *App) layoutOverlay(g *gocui.Gui, maxX, maxY int) error {
-	width := min(58, maxX-2)
+	width := min(76, maxX-2)
 	height := min(16, maxY-2)
 	x0, y0 := (maxX-width)/2, (maxY-height)/2
 	x1, y1 := x0+width, y0+height
 	filterHeight := 3
-	filter, err := g.SetView("filter", x0, y0, x1, y0+filterHeight-1, 1)
+	filter, err := g.SetView("filter", x0, y0, x1, y0+filterHeight-1, 0)
 	if err != nil && !gocui.IsUnknownView(err) {
 		return err
 	}
@@ -167,7 +167,7 @@ func (a *App) layoutOverlay(g *gocui.Gui, maxX, maxY int) error {
 	if err != nil && !gocui.IsUnknownView(err) {
 		return err
 	}
-	list.Visible, list.FrameRunes = true, roundedFrame
+	list.Visible, list.Wrap, list.FrameRunes = true, false, roundedFrame
 	if !filter.Visible {
 		list.Title = " " + a.overlay.title + " "
 	} else {

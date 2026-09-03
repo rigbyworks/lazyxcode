@@ -203,7 +203,7 @@ func (a *App) loadSimulators() {
 	project := a.project
 	a.loading = true
 	a.sims = nil
-	a.status = "Loading compatible simulators for " + scheme + "..."
+	a.status = "Loading compatible targets for " + scheme + "..."
 	generation := a.generation.Add(1)
 	go func() {
 		simulators, err := a.xcode.ListSimulators(a.ctx, container, scheme)
@@ -224,15 +224,25 @@ func (a *App) loadSimulators() {
 				a.simulator = 0
 			}
 			if len(simulators) == 0 {
-				a.status = "No compatible installed simulators"
+				a.status = "No compatible targets"
 			} else if testErr != nil || len(testTargets) == 0 {
-				a.status = fmt.Sprintf("Ready - %d simulators; no tests discovered", len(simulators))
+				a.status = targetSummary(simulators) + "; no tests discovered"
 			} else {
-				a.status = fmt.Sprintf("Ready - %d simulators, %d test targets", len(simulators), len(testTargets))
+				a.status = fmt.Sprintf("%s, %d test targets", targetSummary(simulators), len(testTargets))
 			}
 			a.refreshCacheSize(project)
 		})
 	}()
+}
+
+func targetSummary(targets []model.Simulator) string {
+	devices := 0
+	for _, target := range targets {
+		if target.Physical {
+			devices++
+		}
+	}
+	return fmt.Sprintf("Ready - %d simulators, %d devices", len(targets)-devices, devices)
 }
 
 func (a *App) refreshCacheSize(project *store.Project) {

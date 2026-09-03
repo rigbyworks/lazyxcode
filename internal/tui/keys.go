@@ -131,9 +131,9 @@ func (a *App) openConfigPicker(*gocui.Gui, *gocui.View) error {
 	} else {
 		items := make([]overlayItem, len(a.sims))
 		for i, simulator := range a.sims {
-			items[i] = overlayItem{ID: simulator.ID, Label: fmt.Sprintf("%-28s %-14s %s", simulator.Name, simulator.OS, simulator.State)}
+			items[i] = overlayItem{ID: simulator.ID, Label: fmt.Sprintf("%-28s %-14s %-10s %s", simulator.Name, simulator.OS, simulator.KindLabel(), simulator.State)}
 		}
-		a.overlay = &overlayState{kind: "simulator", title: "Select Simulator", items: items, selected: a.simulator}
+		a.overlay = &overlayState{kind: "simulator", title: "Select Target", items: items, selected: a.simulator}
 	}
 	return nil
 }
@@ -288,12 +288,12 @@ func (a *App) showHelp(*gocui.Gui, *gocui.View) error {
 Tab / Shift-Tab     Cycle panes
 1 / 2 / 3           Focus Build, Activity, Output
 j / k, arrows       Navigate or scroll
-Enter                Select scheme or simulator
+Enter                Select scheme or target
 b                    Build and run
 t                    Run unit and/or UI tests
 x                    Stop selected active build
 c                    Clear managed DerivedData
-r                    Reload schemes and simulators
+r                    Reload schemes and targets
 v                    Toggle concise/raw output
 g / G                First/last row or output position
 ?                    Show this help

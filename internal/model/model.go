@@ -22,6 +22,7 @@ type Simulator struct {
 	Platform   string `json:"platform"`
 	State      string `json:"state"`
 	DeviceType string `json:"deviceType,omitempty"`
+	Physical   bool   `json:"physical,omitempty"`
 }
 
 func (s Simulator) Label() string {
@@ -30,6 +31,13 @@ func (s Simulator) Label() string {
 		label += " (" + s.OS + ")"
 	}
 	return label
+}
+
+func (s Simulator) KindLabel() string {
+	if s.Physical {
+		return "Device"
+	}
+	return "Simulator"
 }
 
 type Phase string

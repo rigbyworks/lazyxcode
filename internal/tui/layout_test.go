@@ -118,6 +118,85 @@ func TestSimulatorPickerFiltersItems(t *testing.T) {
 	}
 }
 
+func TestTargetSummarySeparatesSimulatorsAndDevices(t *testing.T) {
+	targets := []model.Simulator{{ID: "SIM"}, {ID: "PHONE", Physical: true}, {ID: "PAD", Physical: true}}
+	if got := targetSummary(targets); got != "Ready - 1 simulators, 2 devices" {
+		t.Fatalf("summary = %q", got)
+	}
+}
+
+func TestTargetPickerIncludesPhysicalDevices(t *testing.T) {
+	a := &App{
+		configRow: 1,
+		sims: []model.Simulator{
+			{ID: "SIM", Name: "iPhone 17 Pro", OS: "27.0", State: "Shutdown"},
+			{ID: "DEVICE", Name: "Matt's iPhone", State: "Connected", Physical: true},
+		},
+	}
+	if err := a.openConfigPicker(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if a.overlay == nil || a.overlay.title != "Select Target" || len(a.overlay.items) != 2 {
+		t.Fatalf("target picker = %#v", a.overlay)
+	}
+	if !strings.Contains(a.overlay.items[1].Label, "Device") || !strings.Contains(a.overlay.items[1].Label, "Connected") {
+		t.Fatalf("physical target row = %q", a.overlay.items[1].Label)
+	}
+}
+
+func TestTargetPickerKeepsColumnsAlignedAndVisible(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, SupportOverlaps: true, Headless: true, Width: 100, Height: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	a := &App{
+		gui: g, configRow: 1,
+		sims: []model.Simulator{
+			{ID: "DEVICE", Name: "Matt's iPhone SE (3rd Generation)", State: "Connected", Physical: true},
+			{ID: "SIM", Name: "iPad Pro 13-inch (M5)", OS: "27.0", State: "Shutdown"},
+		},
+	}
+	if err := a.openConfigPicker(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.layoutOverlay(g, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	list, _ := g.View("overlay")
+	width, _ := list.InnerSize()
+	lines := strings.Split(strings.TrimSpace(list.Buffer()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("target rows = %#v", lines)
+	}
+	for _, line := range lines {
+		if len([]rune(line)) > width {
+			t.Fatalf("target row exceeds inner width %d: %q", width, line)
+		}
+	}
+	deviceKind, simulatorKind := strings.Index(lines[0], "Device"), strings.Index(lines[1], "Simulator")
+	deviceState, simulatorState := strings.Index(lines[0], "Connected"), strings.Index(lines[1], "Shutdown")
+	if deviceKind != simulatorKind || deviceState != simulatorState {
+		t.Fatalf("columns are misaligned: %#v", lines)
+	}
+}
+
+func TestTargetPickerSearchFrameDoesNotDeclareOverlap(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, SupportOverlaps: true, Headless: true, Width: 100, Height: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	a := &App{gui: g, overlay: &overlayState{kind: "simulator", title: "Select Target"}}
+	if err := a.layoutOverlay(g, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	filter, _ := g.View("filter")
+	if filter.Overlaps != 0 {
+		t.Fatalf("search frame overlap flags = %d, want none", filter.Overlaps)
+	}
+}
+
 func TestBuildEventsAreAppliedInSequence(t *testing.T) {
 	record := model.BuildRecord{ID: "build", Phase: model.PhaseBuilding}
 	a := &App{outputs: map[string]string{}}

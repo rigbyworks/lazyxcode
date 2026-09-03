@@ -15,6 +15,7 @@ import (
 type fakeExecutor struct {
 	started chan string
 	release chan struct{}
+	booted  chan string
 }
 
 func (f *fakeExecutor) Build(ctx context.Context, writer io.Writer, _ model.Container, _ string, simulator model.Simulator, _ string) error {
@@ -42,7 +43,12 @@ func (f *fakeExecutor) Test(ctx context.Context, writer io.Writer, _ model.Conta
 func (*fakeExecutor) Product(context.Context, model.Container, string, model.Simulator, string) (model.Product, error) {
 	return model.Product{AppPath: "/tmp/App.app", BundleID: "com.example.app"}, nil
 }
-func (*fakeExecutor) Boot(context.Context, model.Simulator) error                   { return nil }
+func (f *fakeExecutor) Boot(_ context.Context, simulator model.Simulator) error {
+	if f.booted != nil {
+		f.booted <- simulator.ID
+	}
+	return nil
+}
 func (*fakeExecutor) Install(context.Context, model.Simulator, model.Product) error { return nil }
 func (*fakeExecutor) Launch(context.Context, model.Simulator, model.Product) error  { return nil }
 
@@ -156,5 +162,34 @@ func TestManagerRunsSelectedTestTargetsWithoutDeploying(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("test output missing %q: %s", expected, output)
 		}
+	}
+}
+
+func TestManagerSkipsSimulatorBootForPhysicalDevice(t *testing.T) {
+	executor := &fakeExecutor{started: make(chan string, 1), release: make(chan struct{}), booted: make(chan string, 1)}
+	var mu sync.Mutex
+	var output string
+	manager := newTestManager(t, executor, func(event Event) {
+		mu.Lock()
+		output += event.Output
+		mu.Unlock()
+	})
+	_, err := manager.Start(context.Background(), Request{
+		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
+		Simulator: model.Simulator{ID: "DEVICE", Name: "Matt's iPhone", Physical: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-executor.started
+	close(executor.release)
+	manager.Wait()
+	if len(executor.booted) != 0 {
+		t.Fatal("physical device was passed through simulator boot")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(output, "deploying to Matt's iPhone") || strings.Contains(output, "in Simulator") {
+		t.Fatalf("output = %q", output)
 	}
 }

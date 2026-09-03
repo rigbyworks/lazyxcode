@@ -57,7 +57,7 @@ func (a *App) render(g *gocui.Gui) error {
 	}
 	simulator := "Loading..."
 	if !a.loading && len(a.sims) == 0 {
-		simulator = "No compatible simulators"
+		simulator = "No compatible targets"
 	} else if len(a.sims) > 0 && a.simulator < len(a.sims) {
 		simulator = a.sims[a.simulator].Label()
 	}
@@ -76,7 +76,7 @@ func (a *App) render(g *gocui.Gui) error {
 	if buildHeight >= 7 {
 		writeViewLine(buildView, buildWidth, "  Container   "+container)
 		writeViewLine(buildView, buildWidth, prefix0+"Scheme      "+scheme+"  [>]")
-		writeViewLine(buildView, buildWidth, prefix1+"Simulator   "+simulator+"  [>]")
+		writeViewLine(buildView, buildWidth, prefix1+"Target      "+simulator+"  [>]")
 		writeViewLine(buildView, buildWidth, "")
 		writeViewLine(buildView, buildWidth, "  "+button)
 		writeViewLine(buildView, buildWidth, "  Cache: "+formatBytes(a.cacheSize)+"  [c] Clear")
@@ -112,7 +112,7 @@ func (a *App) render(g *gocui.Gui) error {
 
 	outputView.Clear()
 	if len(a.records) == 0 {
-		fmt.Fprintln(outputView, "Select a scheme and simulator, then press b to build.")
+		fmt.Fprintln(outputView, "Select a scheme and target, then press b to build.")
 	} else {
 		a.loadSelectedOutput()
 		record := a.records[a.buildIndex]
@@ -821,6 +821,7 @@ func setListCursor(view *gocui.View, index, total, itemOffset int) {
 
 func (a *App) renderOverlay(filter, list *gocui.View) error {
 	list.Clear()
+	width, _ := list.InnerSize()
 	itemOffset := 0
 	if a.overlay.message != "" {
 		fmt.Fprintln(list, a.overlay.message)
@@ -834,7 +835,13 @@ func (a *App) renderOverlay(filter, list *gocui.View) error {
 		a.overlay.selected = max(0, len(items)-1)
 	}
 	for _, item := range items {
-		fmt.Fprintln(list, item.Label)
+		label := item.Label
+		if a.overlay.kind == "simulator" {
+			if index := simulatorIndex(a.sims, item.ID); index >= 0 {
+				label = formatTargetRow(a.sims[index], width)
+			}
+		}
+		fmt.Fprintln(list, truncate(label, width))
 	}
 	setListCursor(list, a.overlay.selected, len(items), itemOffset)
 	if filter.Visible && filter.Buffer() == "" && a.overlay.filter != "" {
@@ -842,6 +849,20 @@ func (a *App) renderOverlay(filter, list *gocui.View) error {
 		fmt.Fprint(filter, a.overlay.filter)
 	}
 	return nil
+}
+
+func formatTargetRow(target model.Simulator, width int) string {
+	const osWidth, kindWidth, stateWidth = 7, 9, 9
+	nameWidth := width - osWidth - kindWidth - stateWidth - 3
+	if nameWidth < 8 {
+		return truncate(strings.Join([]string{target.Name, target.OS, target.KindLabel(), target.State}, " "), width)
+	}
+	return fmt.Sprintf("%-*s %-*s %-*s %s",
+		nameWidth, truncate(target.Name, nameWidth),
+		osWidth, truncate(target.OS, osWidth),
+		kindWidth, target.KindLabel(),
+		truncate(target.State, stateWidth),
+	)
 }
 
 func (a *App) filteredOverlayItems() []overlayItem {

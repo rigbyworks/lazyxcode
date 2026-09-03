@@ -318,11 +318,11 @@ func parseDestinations(data []byte, available map[string]simctlDevice) []model.S
 	inAvailable := false
 	for _, raw := range strings.Split(string(data), "\n") {
 		line := strings.TrimSpace(raw)
-		if strings.HasPrefix(line, "Available destinations") {
+		if strings.HasPrefix(line, "Available destinations") || strings.HasPrefix(line, "Destinations compatible") {
 			inAvailable = true
 			continue
 		}
-		if strings.HasPrefix(line, "Ineligible destinations") || strings.HasPrefix(line, "Unavailable destinations") {
+		if strings.HasPrefix(line, "Ineligible destinations") || strings.HasPrefix(line, "Unavailable destinations") || strings.HasPrefix(line, "Destinations incompatible") {
 			inAvailable = false
 			continue
 		}
@@ -331,13 +331,26 @@ func parseDestinations(data []byte, available map[string]simctlDevice) []model.S
 		}
 		fields := parseDestinationFields(strings.TrimSuffix(strings.TrimPrefix(line, "{"), "}"))
 		id, platform := fields["id"], fields["platform"]
-		device, ok := available[id]
-		if !ok || !strings.Contains(platform, "Simulator") {
+		if id == "" || strings.Contains(id, ":placeholder") {
+			continue
+		}
+		if strings.Contains(platform, "Simulator") {
+			device, ok := available[id]
+			if !ok {
+				continue
+			}
+			result = append(result, model.Simulator{
+				ID: id, Name: fields["name"], OS: fields["OS"], Platform: platform,
+				State: device.State, DeviceType: device.DeviceTypeIdentifier,
+			})
+			continue
+		}
+		if platform != "iOS" && platform != "tvOS" && platform != "watchOS" && platform != "visionOS" {
 			continue
 		}
 		result = append(result, model.Simulator{
 			ID: id, Name: fields["name"], OS: fields["OS"], Platform: platform,
-			State: device.State, DeviceType: device.DeviceTypeIdentifier,
+			State: "Connected", Physical: true,
 		})
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -407,6 +420,9 @@ func (c *Client) Product(ctx context.Context, container model.Container, scheme 
 }
 
 func (c *Client) Boot(ctx context.Context, simulator model.Simulator) error {
+	if simulator.Physical {
+		return nil
+	}
 	out, err := c.runner.Output(ctx, "xcrun", "simctl", "boot", simulator.ID)
 	if err != nil && !strings.Contains(string(out), "current state: Booted") {
 		return commandError("boot simulator", out, err)
@@ -422,6 +438,13 @@ func (c *Client) Boot(ctx context.Context, simulator model.Simulator) error {
 }
 
 func (c *Client) Install(ctx context.Context, simulator model.Simulator, product model.Product) error {
+	if simulator.Physical {
+		out, err := c.runner.Output(ctx, "xcrun", "devicectl", "device", "install", "app", "--device", simulator.ID, product.AppPath)
+		if err != nil {
+			return commandError("install app on device", out, err)
+		}
+		return nil
+	}
 	out, err := c.runner.Output(ctx, "xcrun", "simctl", "install", simulator.ID, product.AppPath)
 	if err != nil {
 		return commandError("install app", out, err)
@@ -430,6 +453,13 @@ func (c *Client) Install(ctx context.Context, simulator model.Simulator, product
 }
 
 func (c *Client) Launch(ctx context.Context, simulator model.Simulator, product model.Product) error {
+	if simulator.Physical {
+		out, err := c.runner.Output(ctx, "xcrun", "devicectl", "device", "process", "launch", "--device", simulator.ID, product.BundleID)
+		if err != nil {
+			return commandError("launch app on device", out, err)
+		}
+		return nil
+	}
 	out, err := c.runner.Output(ctx, "xcrun", "simctl", "launch", simulator.ID, product.BundleID)
 	if err != nil {
 		return commandError("launch app", out, err)

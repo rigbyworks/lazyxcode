@@ -135,6 +135,31 @@ func TestDestinationsAreLimitedToEligibleAvailableSimulators(t *testing.T) {
 	}
 }
 
+func TestDestinationsSupportXcode27HeadingsAndPhysicalDevices(t *testing.T) {
+	showDestinations := []byte(`
+	Destinations compatible with the "App" scheme:
+		{ platform:macOS, arch:arm64, id:MAC, name:My Mac }
+		{ platform:iOS, arch:arm64, id:DEVICE, name:Matt's iPhone }
+		{ platform:iOS, id:dvtdevice-DVTiPhonePlaceholder-iphoneos:placeholder, name:Any iOS Device }
+		{ platform:iOS Simulator, arch:arm64, id:SIMULATOR, OS:27.0, name:iPhone 17 Pro }
+	Destinations incompatible with the "App" scheme:
+		{ platform:iOS Simulator, arch:arm64, id:OLD, OS:26.5, name:iPhone 17 Pro, error:OS is below the deployment target }
+`)
+	available := map[string]simctlDevice{
+		"SIMULATOR": {UDID: "SIMULATOR", State: "Shutdown", IsAvailable: true, DeviceTypeIdentifier: "phone"},
+		"OLD":       {UDID: "OLD", State: "Shutdown", IsAvailable: true, DeviceTypeIdentifier: "phone"},
+	}
+
+	got := parseDestinations(showDestinations, available)
+	want := []model.Simulator{
+		{ID: "DEVICE", Name: "Matt's iPhone", Platform: "iOS", State: "Connected", Physical: true},
+		{ID: "SIMULATOR", Name: "iPhone 17 Pro", OS: "27.0", Platform: "iOS Simulator", State: "Shutdown", DeviceType: "phone"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("destinations = %#v, want %#v", got, want)
+	}
+}
+
 func TestProductRequiresOneRunnableApplication(t *testing.T) {
 	runner := &fakeRunner{outputs: map[string][]byte{"-showBuildSettings -json": []byte(`[
 		{"buildSettings":{"WRAPPER_EXTENSION":"app","SKIP_INSTALL":"NO","PRODUCT_BUNDLE_IDENTIFIER":"com.example.app","TARGET_BUILD_DIR":"/tmp/build","FULL_PRODUCT_NAME":"App.app"}},
@@ -214,6 +239,30 @@ func TestBootOpensSimulatorBeforeWaitingForNewDevice(t *testing.T) {
 		"xcrun simctl boot AAAA",
 		"open -a Simulator",
 		"xcrun simctl bootstatus AAAA -b",
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestPhysicalDeviceDeploymentUsesDevicectl(t *testing.T) {
+	runner := &fakeRunner{}
+	client := New(runner)
+	target := model.Simulator{ID: "DEVICE", Name: "Matt's iPhone", Physical: true}
+	product := model.Product{AppPath: "/tmp/App.app", BundleID: "com.example.app"}
+
+	if err := client.Boot(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Install(context.Background(), target, product); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Launch(context.Background(), target, product); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"xcrun devicectl device install app --device DEVICE /tmp/App.app",
+		"xcrun devicectl device process launch --device DEVICE com.example.app",
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
