@@ -111,7 +111,9 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 		m.finish(ctx, &record, model.PhaseRunFailed, err)
 		return
 	}
-	if record.Simulator.Physical {
+	if record.Simulator.IsMac() {
+		_, _ = fmt.Fprintf(writer, "\n[lazy-xcode] Build succeeded; launching on %s\n", record.Simulator.Name)
+	} else if record.Simulator.Physical {
 		_, _ = fmt.Fprintf(writer, "\n[lazy-xcode] Build succeeded; deploying to %s\n", record.Simulator.Name)
 	} else {
 		_, _ = fmt.Fprintf(writer, "\n[lazy-xcode] Build succeeded; opening %s in Simulator\n", record.Simulator.Name)
@@ -119,9 +121,11 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 			return
 		}
 	}
-	_, _ = fmt.Fprintln(writer, "[lazy-xcode] Installing app")
-	if !m.stage(ctx, &record, model.PhaseInstalling, func() error { return m.executor.Install(ctx, record.Simulator, product) }, model.PhaseRunFailed) {
-		return
+	if !record.Simulator.IsMac() {
+		_, _ = fmt.Fprintln(writer, "[lazy-xcode] Installing app")
+		if !m.stage(ctx, &record, model.PhaseInstalling, func() error { return m.executor.Install(ctx, record.Simulator, product) }, model.PhaseRunFailed) {
+			return
+		}
 	}
 	_, _ = fmt.Fprintln(writer, "[lazy-xcode] Launching "+product.BundleID)
 	if !m.stage(ctx, &record, model.PhaseLaunching, func() error { return m.executor.Launch(ctx, record.Simulator, product) }, model.PhaseRunFailed) {
@@ -136,7 +140,7 @@ func (m *Manager) runTests(ctx context.Context, record *model.BuildRecord, write
 		scope = "All Tests"
 	}
 	_, _ = fmt.Fprintf(writer, "[lazy-xcode] Testing %s on %s — %s\n\n", record.Scheme, record.Simulator.Label(), scope)
-	if !record.Simulator.Physical {
+	if record.Simulator.IsSimulator() {
 		_, _ = fmt.Fprintln(writer, "[lazy-xcode] Opening simulator for tests")
 		if !m.stage(ctx, record, model.PhaseBooting, func() error { return m.executor.Boot(ctx, record.Simulator) }, model.PhaseRunFailed) {
 			return

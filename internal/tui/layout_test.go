@@ -118,9 +118,9 @@ func TestSimulatorPickerFiltersItems(t *testing.T) {
 	}
 }
 
-func TestTargetSummarySeparatesSimulatorsAndDevices(t *testing.T) {
-	targets := []model.Simulator{{ID: "SIM"}, {ID: "PHONE", Physical: true}, {ID: "PAD", Physical: true}}
-	if got := targetSummary(targets); got != "Ready - 1 simulators, 2 devices" {
+func TestTargetSummarySeparatesSimulatorsDevicesAndMacs(t *testing.T) {
+	targets := []model.Simulator{{ID: "SIM"}, {ID: "PHONE", Physical: true}, {ID: "PAD", Physical: true}, {ID: "MAC", Platform: "macOS"}}
+	if got := targetSummary(targets); got != "Ready - 1 simulators, 2 devices, 1 Mac" {
 		t.Fatalf("summary = %q", got)
 	}
 }

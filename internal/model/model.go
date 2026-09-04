@@ -34,11 +34,18 @@ func (s Simulator) Label() string {
 }
 
 func (s Simulator) KindLabel() string {
+	if s.IsMac() {
+		return "Mac"
+	}
 	if s.Physical {
 		return "Device"
 	}
 	return "Simulator"
 }
+
+func (s Simulator) IsMac() bool { return s.Platform == "macOS" }
+
+func (s Simulator) IsSimulator() bool { return !s.Physical && !s.IsMac() }
 
 type Phase string
 

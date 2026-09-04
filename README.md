@@ -1,6 +1,6 @@
 # lazy-xcode
 
-`lazy-xcode` is a keyboard-first terminal interface for building, running, and testing Xcode schemes without keeping Xcode open. It discovers the current directory's Xcode containers, shared schemes, test targets, and scheme-compatible simulators and connected devices, then streams each activity into its own retained log.
+`lazy-xcode` is a keyboard-first terminal interface for building, running, and testing Xcode schemes without keeping Xcode open. It discovers the current directory's Xcode containers, shared schemes, test targets, and scheme-compatible simulators, connected devices, and the current Mac, then streams each activity into its own retained log.
 
 ## Requirements
 
@@ -33,7 +33,7 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 | `?` | Show help |
 | `q`, `Ctrl-C` | Quit |
 
-Distinct scheme/target pairs can build or test concurrently. Successful simulator builds boot the selected simulator, open Simulator.app, install the generated app, and launch it. Physical-device builds deploy and launch through `devicectl`. Test scopes are discovered from the selected scheme and its test plans. Starting another activity for the same scheme/target pair while it is active is intentionally rejected because that pair shares an incremental DerivedData cache.
+Distinct scheme/target pairs can build or test concurrently. Successful simulator builds boot the selected simulator, open Simulator.app, install the generated app, and launch it. Physical-device builds deploy and launch through `devicectl`; Mac builds launch the generated app directly. Test scopes are discovered from the selected scheme and its test plans. Starting another activity for the same scheme/target pair while it is active is intentionally rejected because that pair shares an incremental DerivedData cache.
 
 The output pane is concise by default. It shows live, wall-clock build phases and a deduplicated list of warnings and errors using compact `file:line:column — message` entries. Press `v` to inspect the complete raw `xcodebuild` transcript and Xcode's detailed command timing summary; persisted logs retain both the raw output and phase timings.
 

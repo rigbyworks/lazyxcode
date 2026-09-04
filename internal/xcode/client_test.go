@@ -154,6 +154,7 @@ func TestDestinationsSupportXcode27HeadingsAndPhysicalDevices(t *testing.T) {
 	want := []model.Simulator{
 		{ID: "DEVICE", Name: "Matt's iPhone", Platform: "iOS", State: "Connected", Physical: true},
 		{ID: "SIMULATOR", Name: "iPhone 17 Pro", OS: "27.0", Platform: "iOS Simulator", State: "Shutdown", DeviceType: "phone"},
+		{ID: "MAC", Name: "My Mac", Platform: "macOS", State: "Local"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("destinations = %#v, want %#v", got, want)
@@ -264,6 +265,27 @@ func TestPhysicalDeviceDeploymentUsesDevicectl(t *testing.T) {
 		"xcrun devicectl device install app --device DEVICE /tmp/App.app",
 		"xcrun devicectl device process launch --device DEVICE com.example.app",
 	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestMacLaunchOpensBuiltApplication(t *testing.T) {
+	runner := &fakeRunner{}
+	client := New(runner)
+	target := model.Simulator{ID: "MAC", Name: "My Mac", Platform: "macOS"}
+	product := model.Product{AppPath: "/tmp/App.app", BundleID: "com.example.app"}
+
+	if err := client.Boot(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Install(context.Background(), target, product); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Launch(context.Background(), target, product); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"open /tmp/App.app"}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
 	}

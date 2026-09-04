@@ -13,9 +13,11 @@ import (
 )
 
 type fakeExecutor struct {
-	started chan string
-	release chan struct{}
-	booted  chan string
+	started   chan string
+	release   chan struct{}
+	booted    chan string
+	installed chan string
+	launched  chan string
 }
 
 func (f *fakeExecutor) Build(ctx context.Context, writer io.Writer, _ model.Container, _ string, simulator model.Simulator, _ string) error {
@@ -49,8 +51,18 @@ func (f *fakeExecutor) Boot(_ context.Context, simulator model.Simulator) error 
 	}
 	return nil
 }
-func (*fakeExecutor) Install(context.Context, model.Simulator, model.Product) error { return nil }
-func (*fakeExecutor) Launch(context.Context, model.Simulator, model.Product) error  { return nil }
+func (f *fakeExecutor) Install(_ context.Context, simulator model.Simulator, _ model.Product) error {
+	if f.installed != nil {
+		f.installed <- simulator.ID
+	}
+	return nil
+}
+func (f *fakeExecutor) Launch(_ context.Context, simulator model.Simulator, _ model.Product) error {
+	if f.launched != nil {
+		f.launched <- simulator.ID
+	}
+	return nil
+}
 
 func newTestManager(t *testing.T, executor Executor, onEvent func(Event)) *Manager {
 	t.Helper()
@@ -190,6 +202,41 @@ func TestManagerSkipsSimulatorBootForPhysicalDevice(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	if !strings.Contains(output, "deploying to Matt's iPhone") || strings.Contains(output, "in Simulator") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestManagerLaunchesMacWithoutBootingOrInstalling(t *testing.T) {
+	executor := &fakeExecutor{
+		started: make(chan string, 1), release: make(chan struct{}), booted: make(chan string, 1),
+		installed: make(chan string, 1), launched: make(chan string, 1),
+	}
+	var mu sync.Mutex
+	var output string
+	manager := newTestManager(t, executor, func(event Event) {
+		mu.Lock()
+		output += event.Output
+		mu.Unlock()
+	})
+	_, err := manager.Start(context.Background(), Request{
+		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
+		Simulator: model.Simulator{ID: "MAC", Name: "My Mac", Platform: "macOS"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-executor.started
+	close(executor.release)
+	manager.Wait()
+	if len(executor.booted) != 0 || len(executor.installed) != 0 {
+		t.Fatalf("Mac deployment called boot/install: booted=%d installed=%d", len(executor.booted), len(executor.installed))
+	}
+	if launched := <-executor.launched; launched != "MAC" {
+		t.Fatalf("launched %q, want MAC", launched)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(output, "launching on My Mac") || strings.Contains(output, "Installing app") {
 		t.Fatalf("output = %q", output)
 	}
 }

@@ -345,6 +345,12 @@ func parseDestinations(data []byte, available map[string]simctlDevice) []model.S
 			})
 			continue
 		}
+		if platform == "macOS" {
+			result = append(result, model.Simulator{
+				ID: id, Name: fields["name"], OS: fields["OS"], Platform: platform, State: "Local",
+			})
+			continue
+		}
 		if platform != "iOS" && platform != "tvOS" && platform != "watchOS" && platform != "visionOS" {
 			continue
 		}
@@ -420,7 +426,7 @@ func (c *Client) Product(ctx context.Context, container model.Container, scheme 
 }
 
 func (c *Client) Boot(ctx context.Context, simulator model.Simulator) error {
-	if simulator.Physical {
+	if !simulator.IsSimulator() {
 		return nil
 	}
 	out, err := c.runner.Output(ctx, "xcrun", "simctl", "boot", simulator.ID)
@@ -438,6 +444,9 @@ func (c *Client) Boot(ctx context.Context, simulator model.Simulator) error {
 }
 
 func (c *Client) Install(ctx context.Context, simulator model.Simulator, product model.Product) error {
+	if simulator.IsMac() {
+		return nil
+	}
 	if simulator.Physical {
 		out, err := c.runner.Output(ctx, "xcrun", "devicectl", "device", "install", "app", "--device", simulator.ID, product.AppPath)
 		if err != nil {
@@ -453,6 +462,13 @@ func (c *Client) Install(ctx context.Context, simulator model.Simulator, product
 }
 
 func (c *Client) Launch(ctx context.Context, simulator model.Simulator, product model.Product) error {
+	if simulator.IsMac() {
+		out, err := c.runner.Output(ctx, "open", product.AppPath)
+		if err != nil {
+			return commandError("launch app on Mac", out, err)
+		}
+		return nil
+	}
 	if simulator.Physical {
 		out, err := c.runner.Output(ctx, "xcrun", "devicectl", "device", "process", "launch", "--device", simulator.ID, product.BundleID)
 		if err != nil {

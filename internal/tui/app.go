@@ -236,13 +236,19 @@ func (a *App) loadSimulators() {
 }
 
 func targetSummary(targets []model.Simulator) string {
-	devices := 0
+	devices, macs := 0, 0
 	for _, target := range targets {
-		if target.Physical {
+		if target.IsMac() {
+			macs++
+		} else if target.Physical {
 			devices++
 		}
 	}
-	return fmt.Sprintf("Ready - %d simulators, %d devices", len(targets)-devices, devices)
+	macLabel := "Macs"
+	if macs == 1 {
+		macLabel = "Mac"
+	}
+	return fmt.Sprintf("Ready - %d simulators, %d devices, %d %s", len(targets)-devices-macs, devices, macs, macLabel)
 }
 
 func (a *App) refreshCacheSize(project *store.Project) {
