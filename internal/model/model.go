@@ -56,6 +56,7 @@ const (
 	PhaseBooting     Phase = "booting"
 	PhaseInstalling  Phase = "installing"
 	PhaseLaunching   Phase = "launching"
+	PhaseRunning     Phase = "running"
 	PhaseSucceeded   Phase = "succeeded"
 	PhaseBuildFailed Phase = "build_failed"
 	PhaseTestFailed  Phase = "test_failed"
@@ -65,7 +66,7 @@ const (
 
 func (p Phase) Active() bool {
 	switch p {
-	case PhaseQueued, PhaseBuilding, PhaseTesting, PhaseBooting, PhaseInstalling, PhaseLaunching:
+	case PhaseQueued, PhaseBuilding, PhaseTesting, PhaseBooting, PhaseInstalling, PhaseLaunching, PhaseRunning:
 		return true
 	default:
 		return false

@@ -39,7 +39,7 @@ func (ExecRunner) Stream(ctx context.Context, writer io.Writer, name string, arg
 
 func command(ctx context.Context, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(os.Environ(), "NSUnbufferedIO=YES")
+	cmd.Env = append(os.Environ(), "NSUnbufferedIO=YES", "SIMCTL_CHILD_NSUnbufferedIO=YES", "DEVICECTL_CHILD_NSUnbufferedIO=YES")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 3 * time.Second
 	cmd.Cancel = func() error {

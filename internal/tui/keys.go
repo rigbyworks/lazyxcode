@@ -291,7 +291,7 @@ j / k, arrows       Navigate or scroll
 Enter                Select scheme or target
 b                    Build and run
 t                    Run unit and/or UI tests
-x                    Stop selected active build
+x                    Stop selected active activity
 c                    Clear managed DerivedData
 r                    Reload schemes and targets
 v                    Toggle concise/raw output

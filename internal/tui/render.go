@@ -165,7 +165,7 @@ func formatBuildOutput(output string) string {
 			lines[i] = ansiBoldGreen + line + ansiReset
 		case strings.HasPrefix(line, "✘ Test run with "):
 			lines[i] = ansiBoldRed + line + ansiReset
-		case line == "BUILD STEPS" || line == "BUILD PREPARATION" || strings.HasPrefix(line, "DIAGNOSTICS") || strings.HasPrefix(line, "TEST SUITES") || line == "DEPLOYMENT":
+		case line == "BUILD STEPS" || line == "BUILD PREPARATION" || strings.HasPrefix(line, "DIAGNOSTICS") || strings.HasPrefix(line, "TEST SUITES") || line == "DEPLOYMENT" || line == "APP CONSOLE":
 			lines[i] = ansiBoldCyan + line + ansiReset
 			severity = diagnosticNone
 		case strings.HasPrefix(line, "  ✓ "):
@@ -286,12 +286,22 @@ func conciseBuildOutputAt(raw string, now time.Time) string {
 	steps := make([]conciseStep, 0)
 	stepIndexes := map[string]int{}
 	deployment := make([]string, 0, 3)
+	appConsole := make([]string, 0)
 	result := make([]string, 0, 16)
 	intro := ""
 	buildOutcome := ""
+	inAppConsole := false
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
+		if trimmed == "[lazy-xcode] App console" {
+			inAppConsole = true
+			continue
+		}
+		if inAppConsole {
+			appConsole = append(appConsole, line)
+			continue
+		}
 		if event, ok := parseProgressMarker(trimmed); ok {
 			index, exists := stepIndexes[event.name]
 			if !exists {
@@ -377,6 +387,20 @@ func conciseBuildOutputAt(raw string, now time.Time) string {
 			result = append(result, "")
 		}
 		result = append(result, buildOutcome)
+	}
+	if inAppConsole {
+		for len(appConsole) > 0 && appConsole[len(appConsole)-1] == "" {
+			appConsole = appConsole[:len(appConsole)-1]
+		}
+		if len(result) > 0 {
+			result = append(result, "")
+		}
+		result = append(result, "APP CONSOLE")
+		if len(appConsole) == 0 {
+			result = append(result, "  Waiting for app output...")
+		} else {
+			result = append(result, appConsole...)
+		}
 	}
 	if len(result) == 0 {
 		return "Waiting for build activity..."
@@ -733,6 +757,8 @@ func phaseLabel(phase model.Phase) string {
 		return "INSTALL"
 	case model.PhaseLaunching:
 		return "LAUNCH"
+	case model.PhaseRunning:
+		return "RUN"
 	case model.PhaseSucceeded:
 		return "OK"
 	case model.PhaseCancelled:

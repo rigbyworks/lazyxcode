@@ -13,11 +13,12 @@ import (
 )
 
 type fakeExecutor struct {
-	started   chan string
-	release   chan struct{}
-	booted    chan string
-	installed chan string
-	launched  chan string
+	started    chan string
+	release    chan struct{}
+	runRelease chan struct{}
+	booted     chan string
+	installed  chan string
+	launched   chan string
 }
 
 func (f *fakeExecutor) Build(ctx context.Context, writer io.Writer, _ model.Container, _ string, simulator model.Simulator, _ string) error {
@@ -57,9 +58,17 @@ func (f *fakeExecutor) Install(_ context.Context, simulator model.Simulator, _ m
 	}
 	return nil
 }
-func (f *fakeExecutor) Launch(_ context.Context, simulator model.Simulator, _ model.Product) error {
+func (f *fakeExecutor) Launch(ctx context.Context, writer io.Writer, simulator model.Simulator, _ model.Product) error {
+	_, _ = io.WriteString(writer, "app console output\n")
 	if f.launched != nil {
 		f.launched <- simulator.ID
+	}
+	if f.runRelease != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-f.runRelease:
+		}
 	}
 	return nil
 }
@@ -238,5 +247,91 @@ func TestManagerLaunchesMacWithoutBootingOrInstalling(t *testing.T) {
 	defer mu.Unlock()
 	if !strings.Contains(output, "launching on My Mac") || strings.Contains(output, "Installing app") {
 		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestManagerStreamsConsoleWhileAppIsRunning(t *testing.T) {
+	executor := &fakeExecutor{
+		started: make(chan string, 1), release: make(chan struct{}),
+		runRelease: make(chan struct{}), launched: make(chan string, 1),
+	}
+	var mu sync.Mutex
+	var output string
+	var current model.BuildRecord
+	manager := newTestManager(t, executor, func(event Event) {
+		mu.Lock()
+		output += event.Output
+		current = event.Record
+		mu.Unlock()
+	})
+	record, err := manager.Start(context.Background(), Request{
+		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
+		Simulator: model.Simulator{ID: "PHONE", Name: "iPhone"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-executor.started
+	close(executor.release)
+	<-executor.launched
+
+	mu.Lock()
+	phase, streamed := current.Phase, output
+	mu.Unlock()
+	if phase != model.PhaseRunning || !manager.HasActive() {
+		t.Fatalf("activity phase = %q, active = %t", phase, manager.HasActive())
+	}
+	for _, expected := range []string{"[lazy-xcode] App console", "app console output"} {
+		if !strings.Contains(streamed, expected) {
+			t.Fatalf("runtime output missing %q: %s", expected, streamed)
+		}
+	}
+
+	close(executor.runRelease)
+	manager.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if current.ID != record.ID || current.Phase != model.PhaseSucceeded {
+		t.Fatalf("final record = %#v", current)
+	}
+}
+
+func TestStartingBuildReplacesRunningAppOnSameDestination(t *testing.T) {
+	executor := &fakeExecutor{
+		started: make(chan string, 2), release: make(chan struct{}),
+		runRelease: make(chan struct{}), launched: make(chan string, 2),
+	}
+	var mu sync.Mutex
+	final := map[string]model.Phase{}
+	manager := newTestManager(t, executor, func(event Event) {
+		mu.Lock()
+		final[event.Record.ID] = event.Record.Phase
+		mu.Unlock()
+	})
+	request := Request{
+		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
+		Simulator: model.Simulator{ID: "PHONE", Name: "iPhone"},
+	}
+	first, err := manager.Start(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-executor.started
+	close(executor.release)
+	<-executor.launched
+
+	second, err := manager.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("start replacement build: %v", err)
+	}
+	<-executor.started
+	<-executor.launched
+	close(executor.runRelease)
+	manager.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if final[first.ID] != model.PhaseCancelled || final[second.ID] != model.PhaseSucceeded {
+		t.Fatalf("final phases = %#v", final)
 	}
 }

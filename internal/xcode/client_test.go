@@ -251,6 +251,7 @@ func TestPhysicalDeviceDeploymentUsesDevicectl(t *testing.T) {
 	client := New(runner)
 	target := model.Simulator{ID: "DEVICE", Name: "Matt's iPhone", Physical: true}
 	product := model.Product{AppPath: "/tmp/App.app", BundleID: "com.example.app"}
+	var output strings.Builder
 
 	if err := client.Boot(context.Background(), target); err != nil {
 		t.Fatal(err)
@@ -258,15 +259,37 @@ func TestPhysicalDeviceDeploymentUsesDevicectl(t *testing.T) {
 	if err := client.Install(context.Background(), target, product); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Launch(context.Background(), target, product); err != nil {
+	if err := client.Launch(context.Background(), &output, target, product); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
 		"xcrun devicectl device install app --device DEVICE /tmp/App.app",
-		"xcrun devicectl device process launch --device DEVICE com.example.app",
+		"xcrun devicectl device process launch --console --terminate-existing --device DEVICE com.example.app",
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
+	}
+	if output.String() != "build output\n" {
+		t.Fatalf("launch output = %q", output.String())
+	}
+}
+
+func TestSimulatorLaunchStreamsAttachedConsole(t *testing.T) {
+	runner := &fakeRunner{}
+	client := New(runner)
+	target := model.Simulator{ID: "SIMULATOR", Name: "iPhone 17 Pro"}
+	product := model.Product{AppPath: "/tmp/App.app", BundleID: "com.example.app"}
+	var output strings.Builder
+
+	if err := client.Launch(context.Background(), &output, target, product); err != nil {
+		t.Fatal(err)
+	}
+	want := "xcrun simctl launch --console-pty --terminate-running-process SIMULATOR com.example.app"
+	if !reflect.DeepEqual(runner.calls, []string{want}) {
+		t.Fatalf("calls = %#v, want %q", runner.calls, want)
+	}
+	if output.String() != "build output\n" {
+		t.Fatalf("launch output = %q", output.String())
 	}
 }
 
@@ -275,6 +298,7 @@ func TestMacLaunchOpensBuiltApplication(t *testing.T) {
 	client := New(runner)
 	target := model.Simulator{ID: "MAC", Name: "My Mac", Platform: "macOS"}
 	product := model.Product{AppPath: "/tmp/App.app", BundleID: "com.example.app"}
+	var output strings.Builder
 
 	if err := client.Boot(context.Background(), target); err != nil {
 		t.Fatal(err)
@@ -282,7 +306,7 @@ func TestMacLaunchOpensBuiltApplication(t *testing.T) {
 	if err := client.Install(context.Background(), target, product); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Launch(context.Background(), target, product); err != nil {
+	if err := client.Launch(context.Background(), &output, target, product); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"open /tmp/App.app"}

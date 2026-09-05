@@ -20,7 +20,7 @@ type Executor interface {
 	Product(context.Context, model.Container, string, model.Simulator, string) (model.Product, error)
 	Boot(context.Context, model.Simulator) error
 	Install(context.Context, model.Simulator, model.Product) error
-	Launch(context.Context, model.Simulator, model.Product) error
+	Launch(context.Context, io.Writer, model.Simulator, model.Product) error
 }
 
 type Event struct {
@@ -44,6 +44,7 @@ type Manager struct {
 	store    *store.Project
 	jobs     map[string]context.CancelFunc
 	active   map[string]string
+	phases   map[string]model.Phase
 	onEvent  func(Event)
 	sequence atomic.Uint64
 	events   sync.Map
@@ -51,15 +52,21 @@ type Manager struct {
 }
 
 func NewManager(executor Executor, projectStore *store.Project, onEvent func(Event)) *Manager {
-	return &Manager{executor: executor, store: projectStore, jobs: map[string]context.CancelFunc{}, active: map[string]string{}, onEvent: onEvent}
+	return &Manager{
+		executor: executor, store: projectStore, jobs: map[string]context.CancelFunc{},
+		active: map[string]string{}, phases: map[string]model.Phase{}, onEvent: onEvent,
+	}
 }
 
 func (m *Manager) Start(parent context.Context, request Request) (model.BuildRecord, error) {
 	key := request.Scheme + "\x00" + request.Simulator.ID
 	m.mu.Lock()
 	if id := m.active[key]; id != "" {
-		m.mu.Unlock()
-		return model.BuildRecord{}, fmt.Errorf("an activity for %s on %s is already active", request.Scheme, request.Simulator.Name)
+		if m.phases[id] != model.PhaseRunning {
+			m.mu.Unlock()
+			return model.BuildRecord{}, fmt.Errorf("an activity for %s on %s is already active", request.Scheme, request.Simulator.Name)
+		}
+		m.jobs[id]()
 	}
 	id := fmt.Sprintf("%d-%03d", time.Now().UnixMilli(), m.sequence.Add(1))
 	derivedData := m.store.DerivedData(request.Scheme, request.Simulator.ID)
@@ -71,6 +78,7 @@ func (m *Manager) Start(parent context.Context, request Request) (model.BuildRec
 	}
 	m.jobs[id] = cancel
 	m.active[key] = id
+	m.phases[id] = record.Phase
 	m.events.Store(id, &atomic.Uint64{})
 	m.mu.Unlock()
 
@@ -128,7 +136,12 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 		}
 	}
 	_, _ = fmt.Fprintln(writer, "[lazy-xcode] Launching "+product.BundleID)
-	if !m.stage(ctx, &record, model.PhaseLaunching, func() error { return m.executor.Launch(ctx, record.Simulator, product) }, model.PhaseRunFailed) {
+	phase := model.PhaseLaunching
+	if !record.Simulator.IsMac() {
+		phase = model.PhaseRunning
+		_, _ = fmt.Fprintln(writer, "[lazy-xcode] App console")
+	}
+	if !m.stage(ctx, &record, phase, func() error { return m.executor.Launch(ctx, writer, record.Simulator, product) }, model.PhaseRunFailed) {
 		return
 	}
 	m.finish(ctx, &record, model.PhaseSucceeded, nil)
@@ -159,6 +172,7 @@ func (m *Manager) runTests(ctx context.Context, record *model.BuildRecord, write
 
 func (m *Manager) stage(ctx context.Context, record *model.BuildRecord, phase model.Phase, action func() error, failure model.Phase) bool {
 	record.Phase, record.Error = phase, ""
+	m.setPhase(record.ID, phase)
 	m.persist(*record)
 	m.emit(Event{Record: *record})
 	err := action()
@@ -175,6 +189,7 @@ func (m *Manager) finish(ctx context.Context, record *model.BuildRecord, phase m
 	}
 	now := time.Now()
 	record.Phase = phase
+	m.setPhase(record.ID, phase)
 	record.FinishedAt = &now
 	if err != nil && phase != model.PhaseCancelled {
 		record.Error = err.Error()
@@ -204,9 +219,18 @@ func (m *Manager) emit(event Event) {
 func (m *Manager) release(record model.BuildRecord, key string) {
 	m.mu.Lock()
 	delete(m.jobs, record.ID)
-	delete(m.active, key)
+	delete(m.phases, record.ID)
+	if m.active[key] == record.ID {
+		delete(m.active, key)
+	}
 	m.mu.Unlock()
 	m.events.Delete(record.ID)
+}
+
+func (m *Manager) setPhase(id string, phase model.Phase) {
+	m.mu.Lock()
+	m.phases[id] = phase
+	m.mu.Unlock()
 }
 
 func (m *Manager) Stop(id string) bool {

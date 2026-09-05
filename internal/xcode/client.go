@@ -461,7 +461,7 @@ func (c *Client) Install(ctx context.Context, simulator model.Simulator, product
 	return nil
 }
 
-func (c *Client) Launch(ctx context.Context, simulator model.Simulator, product model.Product) error {
+func (c *Client) Launch(ctx context.Context, writer io.Writer, simulator model.Simulator, product model.Product) error {
 	if simulator.IsMac() {
 		out, err := c.runner.Output(ctx, "open", product.AppPath)
 		if err != nil {
@@ -470,15 +470,13 @@ func (c *Client) Launch(ctx context.Context, simulator model.Simulator, product 
 		return nil
 	}
 	if simulator.Physical {
-		out, err := c.runner.Output(ctx, "xcrun", "devicectl", "device", "process", "launch", "--device", simulator.ID, product.BundleID)
-		if err != nil {
-			return commandError("launch app on device", out, err)
+		if err := c.runner.Stream(ctx, writer, "xcrun", "devicectl", "device", "process", "launch", "--console", "--terminate-existing", "--device", simulator.ID, product.BundleID); err != nil {
+			return fmt.Errorf("launch app on device: %w", err)
 		}
 		return nil
 	}
-	out, err := c.runner.Output(ctx, "xcrun", "simctl", "launch", simulator.ID, product.BundleID)
-	if err != nil {
-		return commandError("launch app", out, err)
+	if err := c.runner.Stream(ctx, writer, "xcrun", "simctl", "launch", "--console-pty", "--terminate-running-process", simulator.ID, product.BundleID); err != nil {
+		return fmt.Errorf("launch app: %w", err)
 	}
 	return nil
 }

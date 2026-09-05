@@ -33,9 +33,9 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 | `?` | Show help |
 | `q`, `Ctrl-C` | Quit |
 
-Distinct scheme/target pairs can build or test concurrently. Successful simulator builds boot the selected simulator, open Simulator.app, install the generated app, and launch it. Physical-device builds deploy and launch through `devicectl`; Mac builds launch the generated app directly. Test scopes are discovered from the selected scheme and its test plans. Starting another activity for the same scheme/target pair while it is active is intentionally rejected because that pair shares an incremental DerivedData cache.
+Distinct scheme/target pairs can build or test concurrently. Successful simulator builds boot the selected simulator, open Simulator.app, install the generated app, and launch it. Physical-device builds deploy and launch through `devicectl`; Mac builds launch the generated app directly. Simulator and physical-device launches remain attached and stream the app's standard output and error, including `print` output, until the app exits. Press `x` to stop the running app. Starting another build for the same scheme and target stops the attached app first; other duplicate activities are rejected because they share an incremental DerivedData cache.
 
-The output pane is concise by default. It shows live, wall-clock build phases and a deduplicated list of warnings and errors using compact `file:line:column — message` entries. Press `v` to inspect the complete raw `xcodebuild` transcript and Xcode's detailed command timing summary; persisted logs retain both the raw output and phase timings.
+The output pane is concise by default. It shows live, wall-clock build phases, a deduplicated list of warnings and errors using compact `file:line:column — message` entries, and the attached app console after launch. Press `v` to inspect the complete raw transcript and Xcode's detailed command timing summary; persisted logs retain build and runtime output together with phase timings.
 
 Test output follows the same concise/raw model. Concise mode groups XCTest and Swift Testing results by suite, shows the currently running test, pass/failure counts, suite durations, and source-linked failures.
 

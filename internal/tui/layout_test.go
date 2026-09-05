@@ -335,6 +335,32 @@ func TestConciseBuildOutputUpdatesActiveStepElapsedTime(t *testing.T) {
 	}
 }
 
+func TestConciseBuildOutputIncludesAppConsoleVerbatim(t *testing.T) {
+	raw := `[lazy-xcode] Building App for iPhone 17 Pro
+** BUILD SUCCEEDED **
+[lazy-xcode] Installing app
+[lazy-xcode] Launching com.example.app
+[lazy-xcode] App console
+User signed in
+warning: this is app output, not a build diagnostic`
+	output := conciseBuildOutputAt(raw, time.Now())
+	for _, expected := range []string{"APP CONSOLE", "User signed in", "warning: this is app output, not a build diagnostic"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("concise output missing %q:\n%s", expected, output)
+		}
+	}
+	if strings.Contains(output, "DIAGNOSTICS") {
+		t.Fatalf("app console line was treated as a build diagnostic:\n%s", output)
+	}
+}
+
+func TestRunningBuildUsesRunStatus(t *testing.T) {
+	record := model.BuildRecord{Phase: model.PhaseRunning}
+	if label := recordPhaseLabel(record); label != "RUN" {
+		t.Fatalf("running build label = %q, want RUN", label)
+	}
+}
+
 func TestConciseXCTestOutputShowsSuiteResultsAndFailures(t *testing.T) {
 	raw := `[lazy-xcode] Testing App on iPhone 17 Pro (26.0) — Unit Tests
 [lazy-xcode:step] start 100000 4 Compile sources
