@@ -558,6 +558,53 @@ func TestOutputVerbosityAppearsInPanelTitle(t *testing.T) {
 	}
 }
 
+func TestCopyOutputCopiesDisplayedTextWithoutFormatting(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, Headless: true, Width: 30, Height: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	view, err := g.SetView("output", 0, 0, 29, 9, 0)
+	if err != nil && !gocui.IsUnknownView(err) {
+		t.Fatal(err)
+	}
+	fmt.Fprint(view, ansiBoldRed+"BUILD FAILED"+ansiReset+"\nApp.swift:10:5")
+	var copied string
+	a := &App{copyToClipboard: func(value string) error {
+		copied = value
+		return nil
+	}}
+	if err := a.copyOutput(g, view); err != nil {
+		t.Fatal(err)
+	}
+	if copied != "BUILD FAILED\nApp.swift:10:5" {
+		t.Fatalf("copied output = %q", copied)
+	}
+	if a.status != "Output copied to clipboard" {
+		t.Fatalf("status = %q", a.status)
+	}
+}
+
+func TestCopyOutputReportsClipboardFailure(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, Headless: true, Width: 30, Height: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	view, err := g.SetView("output", 0, 0, 29, 9, 0)
+	if err != nil && !gocui.IsUnknownView(err) {
+		t.Fatal(err)
+	}
+	fmt.Fprint(view, "build output")
+	a := &App{copyToClipboard: func(string) error { return fmt.Errorf("clipboard unavailable") }}
+	if err := a.copyOutput(g, view); err != nil {
+		t.Fatal(err)
+	}
+	if a.status != "Copy output: clipboard unavailable" {
+		t.Fatalf("status = %q", a.status)
+	}
+}
+
 func TestOutputScrollingStopsAtRenderedContentBounds(t *testing.T) {
 	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, Headless: true, Width: 30, Height: 10})
 	if err != nil {

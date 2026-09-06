@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/jesseduffield/gocui"
@@ -28,6 +29,7 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 			binding{view, 'r', a.byMode(a.reload, a.refreshCloud)},
 			binding{view, 'L', a.byMode(nil, a.loadOlderCloudRuns)},
 			binding{view, 'v', a.byMode(a.toggleOutputVerbosity, a.toggleCloudVerbosity)},
+			binding{view, 'y', a.copyOutput},
 			binding{view, 'a', a.byMode(nil, a.openCloudArtifactPicker)},
 			binding{view, 'm', a.toggleMode},
 			binding{view, '?', a.showHelp},
@@ -288,6 +290,35 @@ func (a *App) toggleOutputVerbosity(g *gocui.Gui, _ *gocui.View) error {
 	return nil
 }
 
+func (a *App) copyOutput(g *gocui.Gui, _ *gocui.View) error {
+	view, err := g.View("output")
+	if err != nil {
+		a.status = "Output is unavailable"
+		return nil
+	}
+	output := ansiPattern.ReplaceAllString(view.Buffer(), "")
+	if strings.TrimSpace(output) == "" {
+		a.status = "No output to copy"
+		return nil
+	}
+	copy := a.copyToClipboard
+	if copy == nil {
+		copy = copyToClipboard
+	}
+	if err := copy(output); err != nil {
+		a.status = "Copy output: " + err.Error()
+		return nil
+	}
+	a.status = "Output copied to clipboard"
+	return nil
+}
+
+func copyToClipboard(value string) error {
+	command := exec.Command("pbcopy")
+	command.Stdin = strings.NewReader(value)
+	return command.Run()
+}
+
 func (a *App) confirmClearCache(*gocui.Gui, *gocui.View) error {
 	if a.project == nil {
 		return nil
@@ -312,6 +343,7 @@ m                    Switch between Local and Cloud mode
 j / k, arrows       Navigate or scroll
 g / G                First/last row or output position
 v                    Toggle concise/raw output
+y                    Copy displayed output to clipboard
 ?                    Show this help
 q / Ctrl-C           Quit
 

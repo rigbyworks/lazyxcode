@@ -31,6 +31,7 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 | `L` | Unused | Load older build runs |
 | `a` | Unused | Download an artifact from the selected run |
 | `v` | Toggle concise or raw output | Toggle structured details or raw logs |
+| `y` | Copy the displayed output | Copy the displayed output |
 | `j`, `k`, arrows | Navigate or scroll | Same; moving past the last run loads older runs |
 | `g`, `G` | First/last activity or top/follow output | Same |
 | `?` | Show help | Same |

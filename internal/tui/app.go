@@ -67,6 +67,7 @@ type App struct {
 	mode              appMode
 	cloud             *cloudState
 	cloudConnect      func() (xcodecloud.Service, []string, error)
+	copyToClipboard   func(string) error
 	localOutputOrigin int
 	dispatch          func(func())
 	now               func() time.Time
@@ -85,6 +86,7 @@ func Run(ctx context.Context, directory string, client *xcode.Client, preference
 		ctx: runContext, directory: directory, xcode: client, preferences: preferences,
 		containers: containers, gui: g, focus: "build", outputs: map[string]string{},
 		eventNext: map[string]uint64{}, eventQueue: map[string]map[uint64]buildmanager.Event{},
+		copyToClipboard: copyToClipboard,
 	}
 	g.Mouse = true
 	g.Highlight = true
