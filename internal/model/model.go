@@ -77,6 +77,7 @@ type Operation string
 
 const (
 	OperationBuild Operation = "build"
+	OperationRun   Operation = "run"
 	OperationTest  Operation = "test"
 )
 
@@ -109,10 +110,12 @@ type BuildRecord struct {
 }
 
 func (r BuildRecord) OperationKind() Operation {
-	if r.Operation == OperationTest {
-		return OperationTest
+	switch r.Operation {
+	case OperationRun, OperationTest:
+		return r.Operation
+	default:
+		return OperationBuild
 	}
-	return OperationBuild
 }
 
 func (r BuildRecord) Duration(now time.Time) time.Duration {

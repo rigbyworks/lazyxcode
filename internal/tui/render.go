@@ -76,7 +76,7 @@ func (a *App) renderLocal(buildView, buildsView, outputView *gocui.View) error {
 			prefix1 = "> "
 		}
 	}
-	button := "[b] Build & run   [t] Test"
+	button := "[b] Build   [r] Run   [t] Test"
 	if a.loading || len(a.schemes) == 0 || len(a.sims) == 0 {
 		button = "Build and tests unavailable"
 	}
@@ -92,7 +92,7 @@ func (a *App) renderLocal(buildView, buildsView, outputView *gocui.View) error {
 			"  Project  " + container,
 			prefix0 + "Scheme   " + scheme + " [>]",
 			prefix1 + "Device   " + simulator + " [>]",
-			"  [b] Build  [t] Test  [c] Cache " + formatBytes(a.cacheSize),
+			"  [b] Build  [r] Run  [t] Test  [c] Cache " + formatBytes(a.cacheSize),
 		}
 		for i := 0; i < min(buildHeight, len(lines)); i++ {
 			writeViewLine(buildView, buildWidth, lines[i])

@@ -19,6 +19,7 @@ type fakeExecutor struct {
 	booted     chan string
 	installed  chan string
 	launched   chan string
+	products   chan string
 }
 
 func (f *fakeExecutor) Build(ctx context.Context, writer io.Writer, _ model.Container, _ string, simulator model.Simulator, _ string) error {
@@ -43,7 +44,10 @@ func (f *fakeExecutor) Test(ctx context.Context, writer io.Writer, _ model.Conta
 	}
 }
 
-func (*fakeExecutor) Product(context.Context, model.Container, string, model.Simulator, string) (model.Product, error) {
+func (f *fakeExecutor) Product(_ context.Context, _ model.Container, _ string, simulator model.Simulator, _ string) (model.Product, error) {
+	if f.products != nil {
+		f.products <- simulator.ID
+	}
 	return model.Product{AppPath: "/tmp/App.app", BundleID: "com.example.app"}, nil
 }
 func (f *fakeExecutor) Boot(_ context.Context, simulator model.Simulator) error {
@@ -186,6 +190,39 @@ func TestManagerRunsSelectedTestTargetsWithoutDeploying(t *testing.T) {
 	}
 }
 
+func TestManagerBuildOnlyDoesNotPrepareOrLaunchProduct(t *testing.T) {
+	executor := &fakeExecutor{
+		started: make(chan string, 1), release: make(chan struct{}), products: make(chan string, 1),
+		booted: make(chan string, 1), installed: make(chan string, 1), launched: make(chan string, 1),
+	}
+	var mu sync.Mutex
+	var final model.BuildRecord
+	manager := newTestManager(t, executor, func(event Event) {
+		mu.Lock()
+		final = event.Record
+		mu.Unlock()
+	})
+	_, err := manager.Start(context.Background(), Request{
+		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
+		Simulator: model.Simulator{ID: "PHONE", Name: "iPhone"}, Operation: model.OperationBuild,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-executor.started
+	close(executor.release)
+	manager.Wait()
+	if len(executor.products) != 0 || len(executor.booted) != 0 || len(executor.installed) != 0 || len(executor.launched) != 0 {
+		t.Fatalf("build-only prepared or launched product: products=%d booted=%d installed=%d launched=%d",
+			len(executor.products), len(executor.booted), len(executor.installed), len(executor.launched))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if final.OperationKind() != model.OperationBuild || final.Phase != model.PhaseSucceeded {
+		t.Fatalf("final record = %#v", final)
+	}
+}
+
 func TestManagerSkipsSimulatorBootForPhysicalDevice(t *testing.T) {
 	executor := &fakeExecutor{started: make(chan string, 1), release: make(chan struct{}), booted: make(chan string, 1)}
 	var mu sync.Mutex
@@ -197,7 +234,7 @@ func TestManagerSkipsSimulatorBootForPhysicalDevice(t *testing.T) {
 	})
 	_, err := manager.Start(context.Background(), Request{
 		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
-		Simulator: model.Simulator{ID: "DEVICE", Name: "Matt's iPhone", Physical: true},
+		Simulator: model.Simulator{ID: "DEVICE", Name: "Matt's iPhone", Physical: true}, Operation: model.OperationRun,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +266,7 @@ func TestManagerLaunchesMacWithoutBootingOrInstalling(t *testing.T) {
 	})
 	_, err := manager.Start(context.Background(), Request{
 		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
-		Simulator: model.Simulator{ID: "MAC", Name: "My Mac", Platform: "macOS"},
+		Simulator: model.Simulator{ID: "MAC", Name: "My Mac", Platform: "macOS"}, Operation: model.OperationRun,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -266,7 +303,7 @@ func TestManagerStreamsConsoleWhileAppIsRunning(t *testing.T) {
 	})
 	record, err := manager.Start(context.Background(), Request{
 		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
-		Simulator: model.Simulator{ID: "PHONE", Name: "iPhone"},
+		Simulator: model.Simulator{ID: "PHONE", Name: "iPhone"}, Operation: model.OperationRun,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +347,7 @@ func TestStartingBuildReplacesRunningAppOnSameDestination(t *testing.T) {
 	})
 	request := Request{
 		Container: model.Container{Kind: model.Project, Path: "/tmp/App.xcodeproj"}, Scheme: "App",
-		Simulator: model.Simulator{ID: "PHONE", Name: "iPhone"},
+		Simulator: model.Simulator{ID: "PHONE", Name: "iPhone"}, Operation: model.OperationRun,
 	}
 	first, err := manager.Start(context.Background(), request)
 	if err != nil {

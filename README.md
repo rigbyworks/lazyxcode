@@ -24,11 +24,12 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 | `m` | Switch to Cloud mode | Switch to Local mode |
 | `o` | Open the selected project or workspace in Xcode | Same |
 | `Enter` | Select a scheme or target | Select a product or workflow filter |
-| `b` | Start a build | Unavailable (read-only) |
+| `b` | Build without launching | Unavailable (read-only) |
+| `r` | Build and run | Refresh build runs |
 | `t` | Run all, unit, or UI tests | Unavailable (read-only) |
 | `x` | Cancel the selected active activity | Cancel the current artifact download |
 | `c` | Clear managed DerivedData | Unavailable (read-only) |
-| `r` | Reload schemes and targets | Refresh build runs |
+| `R` | Reload schemes and targets | Unavailable (read-only) |
 | `L` | Unused | Load older build runs |
 | `a` | Unused | Download an artifact from the selected run |
 | `v` | Toggle concise or raw output | Toggle structured details or raw logs |

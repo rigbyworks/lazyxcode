@@ -340,7 +340,7 @@ func TestCloudKeysNeverInvokeLocalActions(t *testing.T) {
 	h.drain()
 	before := len(a.records)
 	for _, key := range []func(*gocui.Gui, *gocui.View) error{
-		a.byMode(a.startBuild, nil), a.byMode(a.openTestPicker, nil), a.byMode(a.confirmClearCache, nil), a.byMode(a.stopBuild, a.cancelCloudDownload),
+		a.byMode(a.startBuild, nil), a.byMode(a.startRun, nil), a.byMode(a.openTestPicker, nil), a.byMode(a.confirmClearCache, nil), a.byMode(a.stopBuild, a.cancelCloudDownload),
 	} {
 		a.status = ""
 		h.press(key)
@@ -351,7 +351,7 @@ func TestCloudKeysNeverInvokeLocalActions(t *testing.T) {
 	if len(a.records) != before || a.manager.HasActive() {
 		t.Fatal("cloud keys started local work")
 	}
-	h.press(a.byMode(a.reload, a.refreshCloud))
+	h.press(a.byMode(a.startRun, a.refreshCloud))
 	if !strings.HasPrefix(a.status, "Refreshing") {
 		t.Fatalf("cloud r status = %q", a.status)
 	}
@@ -445,7 +445,7 @@ func TestCloudNotConfiguredShowsGuidanceAndKeepsLocalUsable(t *testing.T) {
 		return configuredFake(), []string{"private key is readable by other users"}, nil
 	}
 	h.press(a.toggleMode)
-	h.press(a.byMode(a.reload, a.refreshCloud))
+	h.press(a.byMode(a.startRun, a.refreshCloud))
 	h.drain()
 	if a.cloud.setupErr != nil || len(a.cloud.runs) != 4 {
 		t.Fatalf("retry did not connect: err=%v runs=%d", a.cloud.setupErr, len(a.cloud.runs))
@@ -465,7 +465,7 @@ func TestCloudRendersErrorAndEmptyStatesWithoutLosingData(t *testing.T) {
 	h.layout()
 	// Permission error on refresh keeps the last data and marks it stale.
 	service.errs["runs"] = &xcodecloud.APIError{Status: 403, Title: "Forbidden"}
-	h.press(a.byMode(a.reload, a.refreshCloud))
+	h.press(a.byMode(a.startRun, a.refreshCloud))
 	h.drain()
 	h.layout()
 	if len(a.cloud.runs) != 4 || !a.cloud.stale {
@@ -476,7 +476,7 @@ func TestCloudRendersErrorAndEmptyStatesWithoutLosingData(t *testing.T) {
 	}
 	// Rate limiting is reported the same way.
 	service.errs["runs"] = &xcodecloud.APIError{Status: 429}
-	h.press(a.byMode(a.reload, a.refreshCloud))
+	h.press(a.byMode(a.startRun, a.refreshCloud))
 	h.drain()
 	if !strings.Contains(a.status, "rate limit") {
 		t.Fatalf("rate limit status = %q", a.status)
@@ -721,7 +721,7 @@ func TestCloudRefreshesDetailsWhenAnActiveRunCompletes(t *testing.T) {
 	}
 	service.mu.Unlock()
 
-	h.press(a.byMode(a.reload, a.refreshCloud))
+	h.press(a.byMode(a.startRun, a.refreshCloud))
 	h.drain()
 
 	if service.count("details:run-245") != initialDetails+1 {

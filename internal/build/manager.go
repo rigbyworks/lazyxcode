@@ -114,6 +114,10 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 	}, model.PhaseBuildFailed) {
 		return
 	}
+	if record.OperationKind() == model.OperationBuild {
+		m.finish(ctx, &record, model.PhaseSucceeded, nil)
+		return
+	}
 	product, err := m.executor.Product(ctx, record.Container, record.Scheme, record.Simulator, record.DerivedDataKey)
 	if err != nil {
 		m.finish(ctx, &record, model.PhaseRunFailed, err)

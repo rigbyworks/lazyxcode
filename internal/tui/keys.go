@@ -23,10 +23,11 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 			binding{view, gocui.KeyTab, a.cycleFocus(1)},
 			binding{view, gocui.KeyBacktab, a.cycleFocus(-1)},
 			binding{view, 'b', a.byMode(a.startBuild, nil)},
+			binding{view, 'r', a.byMode(a.startRun, a.refreshCloud)},
+			binding{view, 'R', a.byMode(a.reload, nil)},
 			binding{view, 't', a.byMode(a.openTestPicker, nil)},
 			binding{view, 'x', a.byMode(a.stopBuild, a.cancelCloudDownload)},
 			binding{view, 'c', a.byMode(a.confirmClearCache, nil)},
-			binding{view, 'r', a.byMode(a.reload, a.refreshCloud)},
 			binding{view, 'L', a.byMode(nil, a.loadOlderCloudRuns)},
 			binding{view, 'v', a.byMode(a.toggleOutputVerbosity, a.toggleCloudVerbosity)},
 			binding{view, 'y', a.copyOutput},
@@ -163,11 +164,19 @@ func (a *App) openConfigPicker(*gocui.Gui, *gocui.View) error {
 }
 
 func (a *App) startBuild(*gocui.Gui, *gocui.View) error {
+	return a.startBuildOrRun(model.OperationBuild)
+}
+
+func (a *App) startRun(*gocui.Gui, *gocui.View) error {
+	return a.startBuildOrRun(model.OperationRun)
+}
+
+func (a *App) startBuildOrRun(operation model.Operation) error {
 	if a.loading || a.manager == nil || len(a.schemes) == 0 || len(a.sims) == 0 {
-		a.status = "Build is unavailable until discovery completes"
+		a.status = "Build and run are unavailable until discovery completes"
 		return nil
 	}
-	record, err := a.manager.Start(a.ctx, buildmanager.Request{Container: a.container, Scheme: a.schemes[a.scheme], Simulator: a.sims[a.simulator], Operation: model.OperationBuild})
+	record, err := a.manager.Start(a.ctx, buildmanager.Request{Container: a.container, Scheme: a.schemes[a.scheme], Simulator: a.sims[a.simulator], Operation: operation})
 	if err != nil {
 		a.status = err.Error()
 		return nil
@@ -176,7 +185,7 @@ func (a *App) startBuild(*gocui.Gui, *gocui.View) error {
 	a.buildIndex = 0
 	a.outputFollow = true
 	a.outputs[record.ID] = ""
-	a.status = "Queued build #" + shortID(record.ID)
+	a.status = "Queued " + string(operation) + " #" + shortID(record.ID)
 	return nil
 }
 
@@ -372,11 +381,12 @@ q / Ctrl-C           Quit
 
 Local mode
 Enter                Select scheme or target
-b                    Build and run
+b                    Build without launching
+r                    Build and run
 t                    Run unit and/or UI tests
 x                    Stop selected active activity
 c                    Clear managed DerivedData
-r                    Reload schemes and targets
+R                    Reload schemes and targets
 
 Cloud mode (read-only)
 Enter                Select product or workflow filter

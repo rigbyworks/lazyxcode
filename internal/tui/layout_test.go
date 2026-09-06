@@ -339,6 +339,25 @@ func TestOpenInXcodeKeyIsBoundInEveryMainView(t *testing.T) {
 	}
 }
 
+func TestBuildRunAndReloadKeysAreBoundInEveryMainView(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, Headless: true, Width: 100, Height: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	a := &App{}
+	if err := a.bindKeys(g); err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range []string{"build", "builds", "output"} {
+		for _, key := range []any{'b', 'r', 'R'} {
+			if err := g.DeleteKeybinding(view, key, gocui.ModNone); err != nil {
+				t.Fatalf("%s view does not bind %v: %v", view, key, err)
+			}
+		}
+	}
+}
+
 func TestTestPickerOffersDiscoveredScopes(t *testing.T) {
 	a := &App{
 		manager: &buildmanager.Manager{}, schemes: []string{"App"}, sims: []model.Simulator{{ID: "PHONE"}},
