@@ -14,11 +14,15 @@ type Preferences struct {
 	data preferenceData
 }
 
+const preferencesVersion = 2
+
 type preferenceData struct {
-	Version    int               `json:"version"`
-	Containers map[string]string `json:"containers"`
-	Schemes    map[string]string `json:"schemes"`
-	Simulators map[string]string `json:"simulators"`
+	Version        int               `json:"version"`
+	Containers     map[string]string `json:"containers"`
+	Schemes        map[string]string `json:"schemes"`
+	Simulators     map[string]string `json:"simulators"`
+	CloudProducts  map[string]string `json:"cloudProducts,omitempty"`
+	CloudWorkflows map[string]string `json:"cloudWorkflows,omitempty"`
 }
 
 func NewPreferences() (*Preferences, error) {
@@ -27,7 +31,7 @@ func NewPreferences() (*Preferences, error) {
 		return nil, err
 	}
 	p := &Preferences{path: filepath.Join(root, "preferences.json")}
-	p.data = preferenceData{Version: 1, Containers: map[string]string{}, Schemes: map[string]string{}, Simulators: map[string]string{}}
+	p.data = preferenceData{Version: preferencesVersion}
 	data, err := os.ReadFile(p.path)
 	if err == nil {
 		if err := json.Unmarshal(data, &p.data); err != nil {
@@ -49,6 +53,15 @@ func (p *Preferences) ensureMaps() {
 	}
 	if p.data.Simulators == nil {
 		p.data.Simulators = map[string]string{}
+	}
+	if p.data.CloudProducts == nil {
+		p.data.CloudProducts = map[string]string{}
+	}
+	if p.data.CloudWorkflows == nil {
+		p.data.CloudWorkflows = map[string]string{}
+	}
+	if p.data.Version < preferencesVersion {
+		p.data.Version = preferencesVersion
 	}
 }
 
@@ -88,5 +101,42 @@ func (p *Preferences) SetSimulator(container, scheme, simulator string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.data.Simulators[container+"\x00"+scheme] = simulator
+	return writeJSONAtomic(p.path, p.data)
+}
+
+// CloudProduct returns the remembered Xcode Cloud product ID for a container.
+func (p *Preferences) CloudProduct(container string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.data.CloudProducts[container]
+}
+
+// CloudWorkflow returns the remembered Xcode Cloud workflow filter for a
+// container. An empty value means all workflows.
+func (p *Preferences) CloudWorkflow(container string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.data.CloudWorkflows[container]
+}
+
+func (p *Preferences) SetCloudProduct(container, product string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if product == "" {
+		delete(p.data.CloudProducts, container)
+	} else {
+		p.data.CloudProducts[container] = product
+	}
+	return writeJSONAtomic(p.path, p.data)
+}
+
+func (p *Preferences) SetCloudWorkflow(container, workflow string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if workflow == "" {
+		delete(p.data.CloudWorkflows, container)
+	} else {
+		p.data.CloudWorkflows[container] = workflow
+	}
 	return writeJSONAtomic(p.path, p.data)
 }

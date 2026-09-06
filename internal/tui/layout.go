@@ -29,25 +29,13 @@ func (a *App) layout(g *gocui.Gui) error {
 	contentTop, contentBottom := 1, statusY-1
 	buildHeight := buildPanelHeight(contentBottom-contentTop+1, a.focus)
 	buildBottom := contentTop + buildHeight - 1
-	if err := a.ensureView(g, "build", 0, 1, left-1, buildBottom, "Build [1]", false); err != nil {
+	if err := a.ensureView(g, "build", 0, 1, left-1, buildBottom, a.modeTabsTitle(), false); err != nil {
 		return err
 	}
-	if err := a.ensureView(g, "builds", 0, buildBottom+1, left-1, statusY-1, "Activity [2]", true); err != nil {
+	if err := a.ensureView(g, "builds", 0, buildBottom+1, left-1, statusY-1, a.activityTitle(), true); err != nil {
 		return err
 	}
-	outputTitle := "Output [3]"
-	if a.verboseOutput {
-		outputTitle += " - RAW"
-	} else {
-		outputTitle += " - CONCISE"
-	}
-	if len(a.records) > 0 && a.buildIndex < len(a.records) {
-		outputTitle += " - #" + shortID(a.records[a.buildIndex].ID)
-		if a.records[a.buildIndex].Phase.Active() && a.outputFollow {
-			outputTitle += " - FOLLOW"
-		}
-	}
-	if err := a.ensureView(g, "output", left, 1, maxX-1, statusY-1, outputTitle, false); err != nil {
+	if err := a.ensureView(g, "output", left, 1, maxX-1, statusY-1, a.outputTitle(), false); err != nil {
 		return err
 	}
 	if err := a.ensureHeader(g, maxX); err != nil {
@@ -71,6 +59,49 @@ func (a *App) layout(g *gocui.Gui) error {
 		return err
 	}
 	return nil
+}
+
+func (a *App) modeTabsTitle() string {
+	if a.mode == modeCloud {
+		return "Local  [Cloud] [1]"
+	}
+	return "[Local]  Cloud [1]"
+}
+
+func (a *App) activityTitle() string {
+	if a.mode == modeCloud {
+		return "Cloud Activity [2]"
+	}
+	return "Local Activity [2]"
+}
+
+func (a *App) outputTitle() string {
+	title := "Output [3]"
+	if a.mode == modeCloud {
+		if a.cloud != nil && a.cloud.verbose {
+			title += " - RAW"
+		} else {
+			title += " - CONCISE"
+		}
+		if a.cloud != nil {
+			if run, ok := a.cloud.selectedRun(); ok {
+				title += fmt.Sprintf(" - #%d", run.Number)
+			}
+		}
+		return title
+	}
+	if a.verboseOutput {
+		title += " - RAW"
+	} else {
+		title += " - CONCISE"
+	}
+	if len(a.records) > 0 && a.buildIndex < len(a.records) {
+		title += " - #" + shortID(a.records[a.buildIndex].ID)
+		if a.records[a.buildIndex].Phase.Active() && a.outputFollow {
+			title += " - FOLLOW"
+		}
+	}
+	return title
 }
 
 func sidePanelWidth(width int) int {
@@ -102,6 +133,9 @@ func (a *App) ensureHeader(g *gocui.Gui, maxX int) error {
 	if a.container.Name != "" {
 		name = a.container.Name
 	}
+	if a.mode == modeCloud {
+		name += " | Xcode Cloud"
+	}
 	fmt.Fprint(v, truncate(" lazy-xcode | "+name, maxX))
 	return nil
 }
@@ -113,18 +147,33 @@ func (a *App) ensureFooter(g *gocui.Gui, y, maxX int) error {
 	}
 	v.Visible, v.Frame, v.Wrap = true, false, false
 	v.Clear()
-	keys := " [Tab] Focus  [Enter] Select  [b] Build  [t] Test  [x] Stop  [r] Reload  [v] Output  [?] Help  [q] Quit"
-	if maxX < 100 {
-		keys = " Tab Focus  Enter Select  b Build  t Test  x Stop  v Output  ? Help  q Quit"
-	}
-	if maxX < 68 {
-		keys = " Tab Focus  b Build  t Test  x Stop  v Raw  q Quit"
-	}
+	keys := a.footerKeys(maxX)
 	if a.status != "" {
 		keys += "  |  " + a.status
 	}
 	fmt.Fprint(v, truncate(keys, maxX))
 	return nil
+}
+
+// footerKeys lists only the actions that apply to the visible mode so that a
+// key can never trigger an invisible local mutation from Cloud mode.
+func (a *App) footerKeys(maxX int) string {
+	if a.mode == modeCloud {
+		switch {
+		case maxX >= 110:
+			return "[Tab] Focus [Enter] Select [r] Refresh [L] Older [a] Files [v] Raw [m] Local [?] Help [q] Quit"
+		case maxX >= 68:
+			return " Tab/Enter  r Refresh  L Older  a Files  v Raw  m Local  ? Help  q Quit"
+		}
+		return " r Refresh  L Older  m Local  q Quit"
+	}
+	switch {
+	case maxX >= 110:
+		return "[Tab] Focus [Enter] Select [b] Build [t] Test [x] Stop [r] Reload [v] Raw [m] Cloud [?] Help [q] Quit"
+	case maxX >= 68:
+		return " Tab/Enter  b Build  t Test  x Stop  v Raw  m Cloud  ? Help  q Quit"
+	}
+	return " b Build  t Test  x Stop  v Raw  m Cloud  q Quit"
 }
 
 func (a *App) ensureView(g *gocui.Gui, name string, x0, y0, x1, y1 int, title string, highlight bool) error {
@@ -173,7 +222,7 @@ func (a *App) layoutOverlay(g *gocui.Gui, maxX, maxY int) error {
 	} else {
 		list.Title = " [Enter] Select  [Esc] Cancel "
 	}
-	list.Highlight = true
+	list.Highlight = a.overlay.kind != "help"
 	list.SelBgColor = gocui.GetColor("#315d46")
 	list.SelFgColor = gocui.GetColor("#ffffff")
 	return a.renderOverlay(filter, list)

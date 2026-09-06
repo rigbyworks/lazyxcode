@@ -12,6 +12,7 @@ import (
 	"github.com/mwahlig/lazy-xcode/internal/model"
 	"github.com/mwahlig/lazy-xcode/internal/store"
 	"github.com/mwahlig/lazy-xcode/internal/xcode"
+	"github.com/mwahlig/lazy-xcode/internal/xcodecloud"
 )
 
 type overlayItem struct {
@@ -24,6 +25,7 @@ type overlayState struct {
 	title       string
 	items       []overlayItem
 	selected    int
+	origin      int
 	filter      string
 	message     string
 	initialized bool
@@ -61,6 +63,13 @@ type App struct {
 	verboseOutput bool
 	overlay       *overlayState
 	generation    atomic.Uint64
+
+	mode              appMode
+	cloud             *cloudState
+	cloudConnect      func() (xcodecloud.Service, []string, error)
+	localOutputOrigin int
+	dispatch          func(func())
+	now               func() time.Time
 }
 
 func Run(ctx context.Context, directory string, client *xcode.Client, preferences *store.Preferences, containers []model.Container) error {
@@ -101,6 +110,9 @@ func Run(ctx context.Context, directory string, client *xcode.Client, preference
 	if a.manager != nil {
 		a.manager.CancelAll()
 	}
+	if a.cloud != nil {
+		a.cloud.cancelAll()
+	}
 	if a.manager != nil {
 		a.manager.Wait()
 	}
@@ -121,7 +133,10 @@ func (a *App) refreshElapsedTimes(ctx context.Context) {
 			if a.closing.Load() {
 				return
 			}
-			a.gui.Update(func(*gocui.Gui) error { return nil })
+			a.gui.Update(func(*gocui.Gui) error {
+				a.cloudTick(time.Now())
+				return nil
+			})
 		}
 	}
 }
@@ -137,6 +152,10 @@ func (a *App) rememberedContainer() (int, bool) {
 }
 
 func (a *App) update(fn func()) {
+	if a.dispatch != nil {
+		a.dispatch(fn)
+		return
+	}
 	if a.gui == nil || a.closing.Load() {
 		return
 	}
@@ -152,6 +171,7 @@ func (a *App) chooseContainer(index int) {
 	a.loading = true
 	a.status = "Loading schemes..."
 	_ = a.preferences.SetContainer(a.directory, a.container.Path)
+	a.resetCloudSelection()
 	container := a.container
 	generation := a.generation.Add(1)
 	go func() {

@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,5 +94,46 @@ func TestClearCacheOnlyRemovesManagedDerivedData(t *testing.T) {
 	}
 	if _, err := os.Stat(derived); !os.IsNotExist(err) {
 		t.Fatalf("derived data still exists: %v", err)
+	}
+}
+
+func TestCloudArtifactPathsStayInsideTheCloudCache(t *testing.T) {
+	project := testProject(t)
+	cases := map[string][3]string{
+		"normal":    {"run-245", "artifact-1", "Logs.zip"},
+		"traversal": {"../../etc", "artifact-2", "../../../passwd"},
+		"absolute":  {"/tmp/run", "artifact-3", "/etc/hosts"},
+		"dotfiles":  {"..", "artifact-4", "..."},
+		"spaces":    {"run 1", "artifact-5", "Test Results.xcresult.zip"},
+	}
+	root := filepath.Join(project.cacheDir, "cloud") + string(os.PathSeparator)
+	for name, input := range cases {
+		path, err := project.CloudArtifactPath(input[0], input[1], input[2])
+		if name == "dotfiles" {
+			if err == nil {
+				t.Fatalf("%s: expected an error, got %q", name, path)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !strings.HasPrefix(path, root) || strings.Contains(path, "..") {
+			t.Fatalf("%s: unsafe path %q", name, path)
+		}
+		if filepath.Base(filepath.Dir(filepath.Dir(path))) != "artifacts" {
+			t.Fatalf("%s: unexpected layout %q", name, path)
+		}
+	}
+	path, _ := project.CloudArtifactPath("run-245", "artifact-1", "Logs.zip")
+	if filepath.Base(path) != "Logs.zip" {
+		t.Fatalf("plain filename was altered: %q", path)
+	}
+	other, _ := project.CloudArtifactPath("run-245", "artifact-2", "Logs.zip")
+	if path == other {
+		t.Fatalf("artifacts with the same filename share a path: %q", path)
+	}
+	if err := project.ClearCache(); err != nil {
+		t.Fatal(err)
 	}
 }

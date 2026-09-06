@@ -19,7 +19,7 @@ var diagnosticLocationPattern = regexp.MustCompile(`^(.+:\d+:\d+:)(.*)$`)
 
 var sourceDiagnosticPattern = regexp.MustCompile(`^(.+):(\d+):(\d+):\s+(fatal error|error|warning):\s+(.+)$`)
 
-var conciseDiagnosticPattern = regexp.MustCompile(`^(\s*)(fatal error|error|warning):\s+(.+?)\s+—\s+(.+)$`)
+var conciseDiagnosticPattern = regexp.MustCompile(`^(\s*)(fatal error|error|warning):\s+(.+?)\s+(—|-)\s+(.+)$`)
 
 var (
 	xctestSuiteStart  = regexp.MustCompile(`^Test Suite '(.+)' started`)
@@ -48,6 +48,13 @@ func (a *App) render(g *gocui.Gui) error {
 	if buildView == nil || buildsView == nil || outputView == nil {
 		return nil
 	}
+	if a.mode == modeCloud {
+		return a.renderCloud(buildView, buildsView, outputView)
+	}
+	return a.renderLocal(buildView, buildsView, outputView)
+}
+
+func (a *App) renderLocal(buildView, buildsView, outputView *gocui.View) error {
 	buildView.Clear()
 	buildWidth, buildHeight := buildView.InnerSize()
 	container := valueOr(a.container.Name, "-")
@@ -165,7 +172,7 @@ func formatBuildOutput(output string) string {
 			lines[i] = ansiBoldGreen + line + ansiReset
 		case strings.HasPrefix(line, "✘ Test run with "):
 			lines[i] = ansiBoldRed + line + ansiReset
-		case line == "BUILD STEPS" || line == "BUILD PREPARATION" || strings.HasPrefix(line, "DIAGNOSTICS") || strings.HasPrefix(line, "TEST SUITES") || line == "DEPLOYMENT" || line == "APP CONSOLE":
+		case isOutputHeading(line):
 			lines[i] = ansiBoldCyan + line + ansiReset
 			severity = diagnosticNone
 		case strings.HasPrefix(line, "  ✓ "):
@@ -206,6 +213,19 @@ func formatBuildOutput(output string) string {
 	return strings.Join(lines, "\n")
 }
 
+func isOutputHeading(line string) bool {
+	switch line {
+	case "BUILD STEPS", "BUILD PREPARATION", "DEPLOYMENT", "APP CONSOLE", "XCODE CLOUD", "TESTS":
+		return true
+	}
+	for _, prefix := range []string{"DIAGNOSTICS", "TEST SUITES", "XCODE CLOUD BUILD", "ACTIONS (", "ARTIFACTS ("} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func formatConciseDiagnosticLine(line string) (string, diagnosticSeverity) {
 	match := conciseDiagnosticPattern.FindStringSubmatch(line)
 	if match == nil {
@@ -215,7 +235,7 @@ func formatConciseDiagnosticLine(line string) (string, diagnosticSeverity) {
 	if match[2] == "error" || match[2] == "fatal error" {
 		color, severity = ansiBoldRed, diagnosticError
 	}
-	formatted := match[1] + color + match[2] + ":" + ansiReset + " " + ansiCyan + match[3] + ansiReset + " — " + match[4]
+	formatted := match[1] + color + match[2] + ":" + ansiReset + " " + ansiCyan + match[3] + ansiReset + " " + match[4] + " " + match[5]
 	return formatted, severity
 }
 
@@ -869,7 +889,12 @@ func (a *App) renderOverlay(filter, list *gocui.View) error {
 		}
 		fmt.Fprintln(list, truncate(label, width))
 	}
-	setListCursor(list, a.overlay.selected, len(items), itemOffset)
+	if a.overlay.kind == "help" {
+		clampOverlayOrigin(a.overlay, list)
+		list.SetCursor(0, 0)
+	} else {
+		setListCursor(list, a.overlay.selected, len(items), itemOffset)
+	}
 	if filter.Visible && filter.Buffer() == "" && a.overlay.filter != "" {
 		filter.Clear()
 		fmt.Fprint(filter, a.overlay.filter)

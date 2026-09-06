@@ -74,6 +74,60 @@ func shortHash(value string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// CloudRunDir returns the managed cache directory for one Xcode Cloud run.
+func (p *Project) CloudRunDir(runID string) (string, error) {
+	safeRun, err := safePathComponent(runID)
+	if err != nil {
+		return "", fmt.Errorf("invalid run ID: %w", err)
+	}
+	return filepath.Join(p.cacheDir, "cloud", safeRun), nil
+}
+
+// CloudArtifactPath returns a safe, artifact-specific download destination.
+// Hostile run IDs and filenames are sanitized so that the result always stays
+// inside the project's cloud cache directory.
+func (p *Project) CloudArtifactPath(runID, artifactID, filename string) (string, error) {
+	dir, err := p.CloudRunDir(runID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(artifactID) == "" {
+		return "", errors.New("empty artifact ID")
+	}
+	safeName, err := safePathComponent(filename)
+	if err != nil {
+		return "", fmt.Errorf("invalid artifact name: %w", err)
+	}
+	path := filepath.Join(dir, "artifacts", shortHash(artifactID), safeName)
+	if !strings.HasPrefix(path, filepath.Clean(dir)+string(os.PathSeparator)) {
+		return "", errors.New("artifact path escapes the cloud cache")
+	}
+	return path, nil
+}
+
+const maxPathComponent = 128
+
+func safePathComponent(value string) (string, error) {
+	base := filepath.Base(strings.ReplaceAll(value, "\\", "/"))
+	var builder strings.Builder
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			builder.WriteRune(r)
+		default:
+			builder.WriteRune('_')
+		}
+	}
+	result := strings.TrimLeft(builder.String(), ".")
+	if len(result) > maxPathComponent {
+		result = result[:maxPathComponent]
+	}
+	if result == "" || result == "." || result == ".." {
+		return "", errors.New("empty after sanitizing")
+	}
+	return result, nil
+}
+
 func (p *Project) DerivedData(scheme, simulator string) string {
 	return filepath.Join(p.cacheDir, "derived-data", shortHash(scheme+"\x00"+simulator))
 }

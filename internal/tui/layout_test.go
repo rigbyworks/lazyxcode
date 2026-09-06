@@ -248,6 +248,80 @@ func TestSimulatorPickerCursorTracksSelectionAcrossViewport(t *testing.T) {
 	assertSelection(5)
 }
 
+func TestHelpOverlayNavigationScrollsDocument(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, SupportOverlaps: true, Headless: true, Width: 100, Height: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	a := &App{gui: g, focus: "build", outputs: map[string]string{}}
+	if err := a.showHelp(g, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.layoutOverlay(g, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	list, err := g.View("overlay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list.ViewLinesHeight() <= 0 {
+		t.Fatal("help content was not rendered")
+	}
+	if err := a.moveOverlay(1)(g, list); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.layoutOverlay(g, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	if _, origin := list.Origin(); origin != 1 {
+		t.Fatalf("help origin after scrolling = %d, want 1", origin)
+	}
+	if err := a.moveOverlayTo(true)(g, list); err != nil {
+		t.Fatal(err)
+	}
+	_, height := list.InnerSize()
+	wantBottom := max(0, list.ViewLinesHeight()-height)
+	if _, origin := list.Origin(); origin != wantBottom {
+		t.Fatalf("help bottom origin = %d, want %d", origin, wantBottom)
+	}
+	if err := a.moveOverlay(3)(g, list); err != nil {
+		t.Fatal(err)
+	}
+	if _, origin := list.Origin(); origin != wantBottom {
+		t.Fatalf("help origin moved past bottom to %d", origin)
+	}
+	if err := a.moveOverlayTo(false)(g, list); err != nil {
+		t.Fatal(err)
+	}
+	if _, origin := list.Origin(); origin != 0 {
+		t.Fatalf("help top origin = %d, want 0", origin)
+	}
+}
+
+func TestHelpOverlayScrollingKeysAreBound(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, Headless: true, Width: 100, Height: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	a := &App{}
+	if err := a.bindKeys(g); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []any{
+		'j', 'k', 'g', 'G',
+		gocui.KeyArrowDown, gocui.KeyArrowUp,
+		gocui.KeyPgdn, gocui.KeyPgup,
+		gocui.KeyHome, gocui.KeyEnd,
+		gocui.MouseWheelDown, gocui.MouseWheelUp,
+	} {
+		if err := g.DeleteKeybinding("overlay", key, gocui.ModNone); err != nil {
+			t.Fatalf("overlay key %v is not bound: %v", key, err)
+		}
+	}
+}
+
 func TestTestPickerOffersDiscoveredScopes(t *testing.T) {
 	a := &App{
 		manager: &buildmanager.Manager{}, schemes: []string{"App"}, sims: []model.Simulator{{ID: "PHONE"}},

@@ -21,12 +21,15 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 		bindings = append(bindings,
 			binding{view, gocui.KeyTab, a.cycleFocus(1)},
 			binding{view, gocui.KeyBacktab, a.cycleFocus(-1)},
-			binding{view, 'b', a.startBuild},
-			binding{view, 't', a.openTestPicker},
-			binding{view, 'x', a.stopBuild},
-			binding{view, 'c', a.confirmClearCache},
-			binding{view, 'r', a.reload},
-			binding{view, 'v', a.toggleOutputVerbosity},
+			binding{view, 'b', a.byMode(a.startBuild, nil)},
+			binding{view, 't', a.byMode(a.openTestPicker, nil)},
+			binding{view, 'x', a.byMode(a.stopBuild, a.cancelCloudDownload)},
+			binding{view, 'c', a.byMode(a.confirmClearCache, nil)},
+			binding{view, 'r', a.byMode(a.reload, a.refreshCloud)},
+			binding{view, 'L', a.byMode(nil, a.loadOlderCloudRuns)},
+			binding{view, 'v', a.byMode(a.toggleOutputVerbosity, a.toggleCloudVerbosity)},
+			binding{view, 'a', a.byMode(nil, a.openCloudArtifactPicker)},
+			binding{view, 'm', a.toggleMode},
 			binding{view, '?', a.showHelp},
 			binding{view, 'q', a.requestQuit},
 			binding{view, gocui.KeyCtrlC, a.requestQuit},
@@ -38,7 +41,7 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 	bindings = append(bindings,
 		binding{"build", 'j', a.moveConfig(1)}, binding{"build", gocui.KeyArrowDown, a.moveConfig(1)},
 		binding{"build", 'k', a.moveConfig(-1)}, binding{"build", gocui.KeyArrowUp, a.moveConfig(-1)},
-		binding{"build", gocui.KeyEnter, a.openConfigPicker},
+		binding{"build", gocui.KeyEnter, a.byMode(a.openConfigPicker, a.openCloudConfigPicker)},
 		binding{"builds", 'j', a.moveBuild(1)}, binding{"builds", gocui.KeyArrowDown, a.moveBuild(1)},
 		binding{"builds", 'k', a.moveBuild(-1)}, binding{"builds", gocui.KeyArrowUp, a.moveBuild(-1)},
 		binding{"builds", 'g', a.moveBuildTo(false)}, binding{"builds", 'G', a.moveBuildTo(true)},
@@ -51,6 +54,10 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 		binding{"filter", gocui.KeyCtrlC, a.requestQuit},
 		binding{"overlay", gocui.KeyArrowDown, a.moveOverlay(1)}, binding{"overlay", gocui.KeyArrowUp, a.moveOverlay(-1)},
 		binding{"overlay", 'j', a.moveOverlay(1)}, binding{"overlay", 'k', a.moveOverlay(-1)},
+		binding{"overlay", gocui.KeyPgdn, a.moveOverlay(10)}, binding{"overlay", gocui.KeyPgup, a.moveOverlay(-10)},
+		binding{"overlay", gocui.MouseWheelDown, a.moveOverlay(3)}, binding{"overlay", gocui.MouseWheelUp, a.moveOverlay(-3)},
+		binding{"overlay", 'g', a.moveOverlayTo(false)}, binding{"overlay", 'G', a.moveOverlayTo(true)},
+		binding{"overlay", gocui.KeyHome, a.moveOverlayTo(false)}, binding{"overlay", gocui.KeyEnd, a.moveOverlayTo(true)},
 		binding{"overlay", gocui.KeyEnter, a.chooseOverlay}, binding{"overlay", gocui.KeyEsc, a.closeOverlay},
 		binding{"overlay", 'q', a.closeOverlay}, binding{"overlay", gocui.KeyCtrlC, a.closeOverlay},
 	)
@@ -86,6 +93,12 @@ func (a *App) cycleFocus(delta int) func(*gocui.Gui, *gocui.View) error {
 
 func (a *App) moveConfig(delta int) func(*gocui.Gui, *gocui.View) error {
 	return func(*gocui.Gui, *gocui.View) error {
+		if a.mode == modeCloud {
+			if a.cloud != nil {
+				a.cloud.configRow = (a.cloud.configRow + delta + 2) % 2
+			}
+			return nil
+		}
 		a.configRow = (a.configRow + delta + 2) % 2
 		return nil
 	}
@@ -93,6 +106,10 @@ func (a *App) moveConfig(delta int) func(*gocui.Gui, *gocui.View) error {
 
 func (a *App) moveBuild(delta int) func(*gocui.Gui, *gocui.View) error {
 	return func(*gocui.Gui, *gocui.View) error {
+		if a.mode == modeCloud {
+			a.moveCloudRun(delta)
+			return nil
+		}
 		if len(a.records) == 0 {
 			return nil
 		}
@@ -106,6 +123,10 @@ func (a *App) moveBuild(delta int) func(*gocui.Gui, *gocui.View) error {
 
 func (a *App) moveBuildTo(last bool) func(*gocui.Gui, *gocui.View) error {
 	return func(*gocui.Gui, *gocui.View) error {
+		if a.mode == modeCloud {
+			a.moveCloudRunTo(last)
+			return nil
+		}
 		if len(a.records) == 0 {
 			return nil
 		}
@@ -287,17 +308,27 @@ func (a *App) showHelp(*gocui.Gui, *gocui.View) error {
 	a.overlay = &overlayState{kind: "help", title: "Help", message: strings.TrimSpace(`
 Tab / Shift-Tab     Cycle panes
 1 / 2 / 3           Focus Build, Activity, Output
+m                    Switch between Local and Cloud mode
 j / k, arrows       Navigate or scroll
+g / G                First/last row or output position
+v                    Toggle concise/raw output
+?                    Show this help
+q / Ctrl-C           Quit
+
+Local mode
 Enter                Select scheme or target
 b                    Build and run
 t                    Run unit and/or UI tests
 x                    Stop selected active activity
 c                    Clear managed DerivedData
 r                    Reload schemes and targets
-v                    Toggle concise/raw output
-g / G                First/last row or output position
-?                    Show this help
-q / Ctrl-C           Quit
+
+Cloud mode (read-only)
+Enter                Select product or workflow filter
+r                    Refresh build runs
+L                    Load older build runs
+a                    Download an artifact
+x                    Cancel the current download
 
 Press Esc or q to close.`)}
 	return nil
@@ -362,8 +393,13 @@ func (a *App) editFilter(view *gocui.View, key gocui.Key, ch rune, mod gocui.Mod
 }
 
 func (a *App) moveOverlay(delta int) func(*gocui.Gui, *gocui.View) error {
-	return func(*gocui.Gui, *gocui.View) error {
+	return func(_ *gocui.Gui, view *gocui.View) error {
 		if a.overlay == nil {
+			return nil
+		}
+		if a.overlay.kind == "help" {
+			a.overlay.origin += delta
+			clampOverlayOrigin(a.overlay, view)
 			return nil
 		}
 		items := a.filteredOverlayItems()
@@ -372,6 +408,38 @@ func (a *App) moveOverlay(delta int) func(*gocui.Gui, *gocui.View) error {
 		}
 		return nil
 	}
+}
+
+func (a *App) moveOverlayTo(last bool) func(*gocui.Gui, *gocui.View) error {
+	return func(_ *gocui.Gui, view *gocui.View) error {
+		if a.overlay == nil {
+			return nil
+		}
+		if a.overlay.kind == "help" {
+			a.overlay.origin = 0
+			if last && view != nil {
+				_, height := view.InnerSize()
+				a.overlay.origin = max(0, view.ViewLinesHeight()-height)
+			}
+			clampOverlayOrigin(a.overlay, view)
+			return nil
+		}
+		items := a.filteredOverlayItems()
+		a.overlay.selected = 0
+		if last && len(items) > 0 {
+			a.overlay.selected = len(items) - 1
+		}
+		return nil
+	}
+}
+
+func clampOverlayOrigin(overlay *overlayState, view *gocui.View) {
+	if overlay == nil || view == nil {
+		return
+	}
+	_, height := view.InnerSize()
+	overlay.origin = clamp(overlay.origin, 0, max(0, view.ViewLinesHeight()-height))
+	view.SetOrigin(0, overlay.origin)
 }
 
 func (a *App) chooseOverlay(*gocui.Gui, *gocui.View) error {
@@ -401,6 +469,16 @@ func (a *App) chooseOverlay(*gocui.Gui, *gocui.View) error {
 		a.status = "Selected " + a.sims[a.simulator].Label()
 	case "test-scope":
 		a.startTests(item.ID)
+	case "cloud-product":
+		if a.cloud != nil {
+			a.selectCloudProduct(cloudProductIndex(a.cloud.products, item.ID))
+		}
+	case "cloud-workflow":
+		a.selectCloudWorkflow(item.ID)
+	case "cloud-artifact":
+		if a.cloud != nil {
+			a.downloadSelectedCloudArtifact(item.ID)
+		}
 	case "confirm-cache":
 		if item.ID == "clear" {
 			if err := a.project.ClearCache(); err != nil {

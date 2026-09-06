@@ -2,7 +2,10 @@ module github.com/mwahlig/lazy-xcode
 
 go 1.25
 
-require github.com/jesseduffield/gocui v0.3.1-0.20250220081214-b376cb0857ac
+require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/jesseduffield/gocui v0.3.1-0.20250220081214-b376cb0857ac
+)
 
 require (
 	github.com/gdamore/encoding v1.0.1 // indirect
