@@ -322,6 +322,23 @@ func TestHelpOverlayScrollingKeysAreBound(t *testing.T) {
 	}
 }
 
+func TestOpenInXcodeKeyIsBoundInEveryMainView(t *testing.T) {
+	g, err := gocui.NewGui(gocui.NewGuiOpts{OutputMode: gocui.OutputTrue, Headless: true, Width: 100, Height: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	a := &App{}
+	if err := a.bindKeys(g); err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range []string{"build", "builds", "output"} {
+		if err := g.DeleteKeybinding(view, 'o', gocui.ModNone); err != nil {
+			t.Fatalf("%s view does not bind o: %v", view, err)
+		}
+	}
+}
+
 func TestTestPickerOffersDiscoveredScopes(t *testing.T) {
 	a := &App{
 		manager: &buildmanager.Manager{}, schemes: []string{"App"}, sims: []model.Simulator{{ID: "PHONE"}},
@@ -601,6 +618,39 @@ func TestCopyOutputReportsClipboardFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a.status != "Copy output: clipboard unavailable" {
+		t.Fatalf("status = %q", a.status)
+	}
+}
+
+func TestOpenInXcodeUsesSelectedContainer(t *testing.T) {
+	var opened string
+	a := &App{
+		container: model.Container{Name: "App.xcworkspace", Path: "/tmp/App.xcworkspace"},
+		openXcode: func(path string) error {
+			opened = path
+			return nil
+		},
+	}
+	if err := a.openInXcode(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if opened != "/tmp/App.xcworkspace" {
+		t.Fatalf("opened path = %q", opened)
+	}
+	if a.status != "Opened App.xcworkspace in Xcode" {
+		t.Fatalf("status = %q", a.status)
+	}
+}
+
+func TestOpenInXcodeReportsFailure(t *testing.T) {
+	a := &App{
+		container: model.Container{Name: "App.xcodeproj", Path: "/tmp/App.xcodeproj"},
+		openXcode: func(string) error { return fmt.Errorf("Xcode unavailable") },
+	}
+	if err := a.openInXcode(nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if a.status != "Open in Xcode: Xcode unavailable" {
 		t.Fatalf("status = %q", a.status)
 	}
 }

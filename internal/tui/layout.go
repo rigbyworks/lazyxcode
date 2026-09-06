@@ -161,19 +161,19 @@ func (a *App) footerKeys(maxX int) string {
 	if a.mode == modeCloud {
 		switch {
 		case maxX >= 110:
-			return "[Tab] Focus [Enter] Select [r] Refresh [L] Older [a] Files [v] Raw [y] Copy [m] Local [?] Help [q] Quit"
+			return "[Tab] Focus [Enter] Select [o] Xcode [r] Refresh [L] Older [a] Files [v] Raw [y] Copy [m] Local [?] Help [q] Quit"
 		case maxX >= 68:
-			return " Tab/Enter  r Refresh  L Older  a Files  v Raw  y Copy  m Local  ? Help  q Quit"
+			return " Tab/Enter  o Xcode  r Refresh  L Older  a Files  v Raw  y Copy  m Local  ? Help  q Quit"
 		}
-		return " r Refresh  L Older  m Local  q Quit"
+		return " o Xcode  r Refresh  L Older  m Local  q Quit"
 	}
 	switch {
 	case maxX >= 110:
-		return "[Tab] Focus [Enter] Select [b] Build [t] Test [x] Stop [r] Reload [v] Raw [y] Copy [m] Cloud [?] Help [q] Quit"
+		return "[Tab] Focus [Enter] Select [o] Xcode [b] Build [t] Test [x] Stop [r] Reload [v] Raw [y] Copy [m] Cloud [?] Help [q] Quit"
 	case maxX >= 68:
-		return " Tab/Enter  b Build  t Test  x Stop  v Raw  y Copy  m Cloud  ? Help  q Quit"
+		return " Tab/Enter  o Xcode  b Build  t Test  x Stop  v Raw  y Copy  m Cloud  ? Help  q Quit"
 	}
-	return " b Build  t Test  x Stop  v Raw  y  m Cloud  q Quit"
+	return " o Xcode  b Build  t Test  x Stop  v Raw  y  m Cloud  q Quit"
 }
 
 func (a *App) ensureView(g *gocui.Gui, name string, x0, y0, x1, y1 int, title string, highlight bool) error {

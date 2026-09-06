@@ -30,6 +30,7 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 			binding{view, 'L', a.byMode(nil, a.loadOlderCloudRuns)},
 			binding{view, 'v', a.byMode(a.toggleOutputVerbosity, a.toggleCloudVerbosity)},
 			binding{view, 'y', a.copyOutput},
+			binding{view, 'o', a.openInXcode},
 			binding{view, 'a', a.byMode(nil, a.openCloudArtifactPicker)},
 			binding{view, 'm', a.toggleMode},
 			binding{view, '?', a.showHelp},
@@ -319,6 +320,27 @@ func copyToClipboard(value string) error {
 	return command.Run()
 }
 
+func (a *App) openInXcode(*gocui.Gui, *gocui.View) error {
+	if a.container.Path == "" {
+		a.status = "No Xcode project or workspace selected"
+		return nil
+	}
+	open := a.openXcode
+	if open == nil {
+		open = openXcode
+	}
+	if err := open(a.container.Path); err != nil {
+		a.status = "Open in Xcode: " + err.Error()
+		return nil
+	}
+	a.status = "Opened " + a.container.Name + " in Xcode"
+	return nil
+}
+
+func openXcode(path string) error {
+	return exec.Command("open", "-a", "Xcode", path).Run()
+}
+
 func (a *App) confirmClearCache(*gocui.Gui, *gocui.View) error {
 	if a.project == nil {
 		return nil
@@ -344,6 +366,7 @@ j / k, arrows       Navigate or scroll
 g / G                First/last row or output position
 v                    Toggle concise/raw output
 y                    Copy displayed output to clipboard
+o                    Open project or workspace in Xcode
 ?                    Show this help
 q / Ctrl-C           Quit
 

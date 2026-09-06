@@ -22,6 +22,7 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 | `1`, `2`, `3` | Focus Build, Activity, or Output | Same |
 | `Tab`, `Shift-Tab` | Cycle panes | Same |
 | `m` | Switch to Cloud mode | Switch to Local mode |
+| `o` | Open the selected project or workspace in Xcode | Same |
 | `Enter` | Select a scheme or target | Select a product or workflow filter |
 | `b` | Start a build | Unavailable (read-only) |
 | `t` | Run all, unit, or UI tests | Unavailable (read-only) |
