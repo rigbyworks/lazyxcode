@@ -77,6 +77,10 @@ func (a *App) activityTitle() string {
 
 func (a *App) outputTitle() string {
 	title := "Output [3]"
+	if report := a.selectedTestOutput(); report != nil {
+		return "Output [3] - " + report.title + " [Esc] Log"
+	}
+
 	if a.mode == modeCloud {
 		if a.cloud != nil && a.cloud.verbose {
 			title += " - RAW"
@@ -190,6 +194,10 @@ func (a *App) ensureView(g *gocui.Gui, name string, x0, y0, x1, y1 int, title st
 }
 
 func (a *App) layoutOverlay(g *gocui.Gui, maxX, maxY int) error {
+	if a.renderedOverlay != a.overlay {
+		a.overlay.initialized = false
+		a.renderedOverlay = a.overlay
+	}
 	width := min(76, maxX-2)
 	height := min(16, maxY-2)
 	x0, y0 := (maxX-width)/2, (maxY-height)/2
@@ -238,6 +246,7 @@ func (a *App) hideViews(g *gocui.Gui) {
 
 func (a *App) hideOverlay(g *gocui.Gui) {
 	for _, name := range []string{"filter", "overlay"} {
+	a.renderedOverlay = nil
 		if v, err := g.View(name); err == nil {
 			v.Visible = false
 		}

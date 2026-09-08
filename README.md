@@ -23,10 +23,11 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 | `Tab`, `Shift-Tab` | Cycle panes | Same |
 | `m` | Switch to Cloud mode | Switch to Local mode |
 | `o` | Open the selected project or workspace in Xcode | Same |
-| `Enter` | Select a scheme or target | Select a product or workflow filter |
+| `Enter` | Select a scheme/target, inspect a test activity, or open actions for displayed results | Select a product/workflow or browse test-result artifacts |
 | `b` | Build without launching | Unavailable (read-only) |
 | `r` | Build and run | Refresh build runs |
-| `t` | Run all, unit, or UI tests | Unavailable (read-only) |
+| `t` | Run all, unit, UI, or individual tests; toggle coverage | Unavailable (read-only) |
+| `Esc` | Return from test details or coverage to the log; go back in result pickers | Return from result details; go back in pickers |
 | `x` | Cancel the selected active activity | Cancel the current artifact download |
 | `c` | Clear managed DerivedData | Unavailable (read-only) |
 | `R` | Reload schemes and targets | Unavailable (read-only) |
@@ -44,6 +45,24 @@ Distinct scheme/target pairs can build or test concurrently. Successful simulato
 The output pane is concise by default. It shows live, wall-clock build phases, a deduplicated list of warnings and errors using compact `file:line:column — message` entries, and the attached app console after launch. Press `v` to inspect the complete raw transcript and Xcode's detailed command timing summary; persisted logs retain build and runtime output together with phase timings.
 
 Test output follows the same concise/raw model. Concise mode groups XCTest and Swift Testing results by suite, shows the currently running test, pass/failure counts, suite durations, and source-linked failures.
+
+## Test results and coverage
+
+Press `t` to run a test scope or choose **Individual Test**. Individual-test discovery builds and enumerates the selected scheme's enabled tests, then opens a searchable picker. It appears as a cancellable activity and shares the normal scheme/destination build lock. Press `Enter` on a completed discovery activity to reopen its picker. Both XCTest and Swift Testing are supported; selecting a parameterized test runs all its arguments.
+
+Code coverage is on by default. Toggle it in the `t` menu; the choice is remembered per project or workspace. Coverage adds test instrumentation and can affect runtime, so turn it off when measuring uninstrumented performance.
+
+Select a completed test activity and press `Enter` to:
+
+- Browse test results, including status and duration. Select a test to show its failure details, source locations, and individual runs in Output.
+- Rerun failed tests. Reruns use the original activity's scheme, destination, and coverage setting, and rebuild changed sources. An empty failure list never falls back to running the whole suite.
+- Browse coverage by target, source file, and function.
+- Compare coverage with an earlier run of the same project, scheme, and destination. The report shows percentage-point changes and added or removed targets, files, and functions. The baseline picker includes each run's test scope because running different subsets changes coverage.
+- Open the complete result bundle in Xcode.
+
+While viewing a test's details, press `Enter` for activities, attachment export, or **Run This Test**. Exported screenshots and other attachments open with their default macOS application. `Esc` returns to the activity log, and `v` returns to concise/raw log output. The normal Output scrolling and copy controls also work for test details and coverage. In nested pickers, `Esc` goes back; during a result load it cancels the command.
+
+Result inspection and attachment export require Xcode 16.3 or newer. Missing coverage, older history without a retained bundle, and runs that stop before producing a bundle show an explanation while their logs remain available.
 
 The layout adapts to smaller terminal panes. Narrow panes keep the controls and output side by side, while short panes collapse the unfocused Build or Activity section to its title and expand the focused section.
 
@@ -75,6 +94,8 @@ Runs refresh automatically every 15 seconds while any visible run is active and 
 
 The output pane shows structured details for the selected run: workflow, source and destination branch and commit, actions with durations, deduplicated diagnostics, test summaries with failing tests, and artifact metadata. Press `v` to download the run's log artifacts on demand and show them as text; archived logs are expanded per file, and non-text artifacts are left on disk with their path shown. Press `a` to pick any artifact, including `.xcresult` bundles and archives, and download it to the managed cache. Downloads stream to a temporary file, verify the size Apple reports, and are renamed atomically; `x` cancels the download in progress and removes the partial file.
 
+Press `Enter` on a Cloud run to pick a test-result artifact. The first selection downloads it; press `Enter` again after download to browse its results, activities, attachments, and any recorded coverage. Cloud inspection is read-only. Failed-test reruns and history-based coverage comparisons are available in Local mode. Result archives expand inside the artifact cache and reject unsafe paths, unsupported file types, multiple result bundles, or more than 4 GiB of expanded content.
+
 ### Limitations
 
 - Cloud mode cannot start or cancel builds or edit workflows.
@@ -85,9 +106,11 @@ The output pane shows structured details for the selected run: workflow, source 
 
 ## State and cache
 
-The newest 100 activity records and their complete logs are stored below `$XDG_STATE_HOME/lazy-xcode` or `~/.local/state/lazy-xcode`. Incremental DerivedData is isolated per project, scheme, and target below `$XDG_CACHE_HOME/lazy-xcode` or `~/.cache/lazy-xcode`. Cloud artifacts are downloaded to artifact-specific directories below `projects/<project-hash>/cloud/<run-id>/artifacts/`, with filenames sanitized to stay inside that directory.
+The newest 100 activity records, plus any older active activities, and their complete logs are stored below `$XDG_STATE_HOME/lazy-xcode` or `~/.local/state/lazy-xcode`. Incremental DerivedData is isolated per project, scheme, and target below `$XDG_CACHE_HOME/lazy-xcode` or `~/.cache/lazy-xcode`. Cloud artifacts are downloaded to artifact-specific directories below `projects/<project-hash>/cloud/<run-id>/artifacts/`, with filenames sanitized to stay inside that directory.
 
-The cache action deletes only DerivedData managed by `lazy-xcode`; it does not delete build history, logs, downloaded cloud artifacts, project files, or Xcode's global DerivedData. The preferences file also remembers the selected Xcode Cloud product and workflow per container; files written by earlier versions load unchanged.
+Local test bundles and exported attachments live under the project state directory in `results/<activity-id>/` and expire with their history records. Test discovery saves its test list there as well.
+
+The cache action deletes only DerivedData managed by `lazy-xcode`; it does not delete build history, logs, retained test results, downloaded cloud artifacts, project files, or Xcode's global DerivedData. The preferences file also remembers the selected Xcode Cloud product and workflow per container; files written by earlier versions load unchanged.
 
 ## Development
 

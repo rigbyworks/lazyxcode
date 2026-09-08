@@ -863,6 +863,7 @@ func logArtifactKey(details xcodecloud.BuildDetails) string {
 }
 
 func (a *App) toggleCloudVerbosity(g *gocui.Gui, _ *gocui.View) error {
+	a.testOutput = nil
 	c := a.cloud
 	if c == nil {
 		return nil

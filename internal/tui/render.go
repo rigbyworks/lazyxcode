@@ -131,8 +131,15 @@ func (a *App) renderLocal(buildView, buildsView, outputView *gocui.View) error {
 				output = conciseBuildOutputAt(output, time.Now())
 			}
 		}
+		if report := a.selectedTestOutput(); report != nil {
+			output = report.text
+		} else if record.OperationKind() == model.OperationTest && !record.Phase.Active() && record.ResultBundlePath != "" {
+			output += "\n[Enter] Results, rerun failures, coverage\n"
+		} else if record.OperationKind() == model.OperationDiscoverTests && record.Phase == model.PhaseSucceeded {
+			output += "\n[Enter] Choose a test to run\n"
+		}
 		fmt.Fprint(outputView, formatBuildOutput(output))
-		if record.Error != "" {
+		if record.Error != "" && a.selectedTestOutput() == nil {
 			if output != "" && !strings.HasSuffix(output, "\n") {
 				fmt.Fprintln(outputView)
 			}
@@ -740,6 +747,14 @@ func formatBuildRow(record model.BuildRecord, width int) string {
 }
 
 func recordPhaseLabel(record model.BuildRecord) string {
+	if record.OperationKind() == model.OperationDiscoverTests {
+		if record.Phase == model.PhaseSucceeded {
+			return "TESTS"
+		}
+		if record.Phase == model.PhaseTesting {
+			return "LIST"
+		}
+	}
 	if record.OperationKind() == model.OperationTest {
 		switch record.Phase {
 		case model.PhaseSucceeded:

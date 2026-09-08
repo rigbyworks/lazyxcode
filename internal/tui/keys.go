@@ -43,6 +43,10 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 		)
 	}
 	bindings = append(bindings,
+		binding{"builds", gocui.KeyEnter, a.byMode(a.openTestActivity, a.openCloudTestActivity)},
+		binding{"output", gocui.KeyEnter, a.openTestOutputActions},
+		binding{"output", gocui.KeyEsc, a.closeTestOutput},
+		binding{"builds", gocui.KeyEsc, a.closeTestOutput},
 		binding{"build", 'j', a.moveConfig(1)}, binding{"build", gocui.KeyArrowDown, a.moveConfig(1)},
 		binding{"build", 'k', a.moveConfig(-1)}, binding{"build", gocui.KeyArrowUp, a.moveConfig(-1)},
 		binding{"build", gocui.KeyEnter, a.byMode(a.openConfigPicker, a.openCloudConfigPicker)},
@@ -195,25 +199,38 @@ func (a *App) openTestPicker(*gocui.Gui, *gocui.View) error {
 		return nil
 	}
 	unit, ui := testTargetNames(a.testTargets, model.TestUnit), testTargetNames(a.testTargets, model.TestUI)
-	items := make([]overlayItem, 0, 3)
-	if len(a.testTargets) > 0 {
-		items = append(items, overlayItem{ID: "all", Label: "All Configured Tests"})
-	}
+	items := []overlayItem{{ID: "all", Label: "All Configured Tests"}}
 	if len(unit) > 0 {
 		items = append(items, overlayItem{ID: "unit", Label: fmt.Sprintf("Unit Tests      %d targets", len(unit))})
 	}
 	if len(ui) > 0 {
 		items = append(items, overlayItem{ID: "ui", Label: fmt.Sprintf("UI Tests        %d targets", len(ui))})
 	}
-	if len(items) == 0 {
-		a.status = "No test targets are configured in the selected scheme"
-		return nil
+	items = append(items, overlayItem{ID: "individual", Label: "Choose Individual Test..."})
+	coverage := "On"
+	if a.testCoverageOff {
+		coverage = "Off"
 	}
+	items = append(items, overlayItem{ID: "coverage", Label: "Code Coverage: " + coverage})
 	a.overlay = &overlayState{kind: "test-scope", title: "Run Tests", items: items}
 	return nil
 }
 
 func (a *App) startTests(scope string) {
+	if scope == "coverage" {
+		a.testCoverageOff = !a.testCoverageOff
+		if a.preferences != nil {
+			if err := a.preferences.SetCoverageDisabled(a.container.Path, a.testCoverageOff); err != nil {
+				a.status = "Save coverage preference: " + err.Error()
+			}
+		}
+		_ = a.openTestPicker(nil, nil)
+		return
+	}
+	if scope == "individual" {
+		a.queueTestRequest(buildmanager.Request{Container: a.container, Scheme: a.schemes[a.scheme], Simulator: a.sims[a.simulator], Operation: model.OperationDiscoverTests, TestScope: "Discover Tests"})
+		return
+	}
 	targets := a.testTargets
 	label := "All Tests"
 	if scope == "unit" {
@@ -228,18 +245,10 @@ func (a *App) startTests(scope string) {
 	if scope == "all" {
 		names = nil
 	}
-	record, err := a.manager.Start(a.ctx, buildmanager.Request{
+	a.queueTestRequest(buildmanager.Request{
 		Container: a.container, Scheme: a.schemes[a.scheme], Simulator: a.sims[a.simulator],
-		Operation: model.OperationTest, TestScope: label, Targets: names,
+		Operation: model.OperationTest, TestScope: label, Targets: names, Coverage: !a.testCoverageOff,
 	})
-	if err != nil {
-		a.status = err.Error()
-		return
-	}
-	a.records = append([]model.BuildRecord{record}, a.records...)
-	a.buildIndex, a.outputFollow = 0, true
-	a.outputs[record.ID] = ""
-	a.status = "Queued " + strings.ToLower(label) + " #" + shortID(record.ID)
 }
 
 func testTargetNames(targets []model.TestTarget, kind model.TestKind) []string {
@@ -288,6 +297,7 @@ func (a *App) reload(*gocui.Gui, *gocui.View) error {
 }
 
 func (a *App) toggleOutputVerbosity(g *gocui.Gui, _ *gocui.View) error {
+	a.testOutput = nil
 	a.verboseOutput = !a.verboseOutput
 	mode := "Concise"
 	if a.verboseOutput {
@@ -380,16 +390,18 @@ o                    Open project or workspace in Xcode
 q / Ctrl-C           Quit
 
 Local mode
-Enter                Select scheme or target
+Enter                Select scheme/target or inspect test activity
 b                    Build without launching
 r                    Build and run
-t                    Run unit and/or UI tests
+t                    Run all, unit, UI, or individual tests; coverage toggle
+Enter in Output      Test actions and coverage comparison
+Esc in Output        Return to the activity log
 x                    Stop selected active activity
 c                    Clear managed DerivedData
 R                    Reload schemes and targets
 
 Cloud mode (read-only)
-Enter                Select product or workflow filter
+Enter                Select product/workflow or browse test artifacts
 r                    Refresh build runs
 L                    Load older build runs
 a                    Download an artifact
@@ -519,6 +531,12 @@ func (a *App) chooseOverlay(*gocui.Gui, *gocui.View) error {
 		return nil
 	}
 	item := items[a.overlay.selected]
+	if a.overlay.choose != nil {
+		choose := a.overlay.choose
+		a.overlay = nil
+		choose(item.ID)
+		return nil
+	}
 	kind := a.overlay.kind
 	a.overlay = nil
 	switch kind {
@@ -568,7 +586,12 @@ func (a *App) closeOverlay(*gocui.Gui, *gocui.View) error {
 	if a.overlay != nil && a.overlay.kind == "container" && a.container.Path == "" {
 		return nil
 	}
-	a.overlay = nil
+	if a.overlay != nil {
+		if a.overlay.cancel != nil {
+			a.overlay.cancel()
+		}
+		a.overlay = a.overlay.parent
+	}
 	return nil
 }
 

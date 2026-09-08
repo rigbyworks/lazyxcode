@@ -42,7 +42,11 @@ func (a *App) renderCloud(buildView, buildsView, outputView *gocui.View) error {
 	}
 
 	outputView.Clear()
-	fmt.Fprint(outputView, formatBuildOutput(a.cloudOutputText(now)))
+	text := a.cloudOutputText(now)
+	if report := a.selectedTestOutput(); report != nil {
+		text = report.text
+	}
+	fmt.Fprint(outputView, formatBuildOutput(text))
 	if c != nil && c.resetOutput {
 		c.resetOutput = false
 		outputView.SetOrigin(0, 0)

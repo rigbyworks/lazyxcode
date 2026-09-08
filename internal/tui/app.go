@@ -29,6 +29,9 @@ type overlayState struct {
 	filter      string
 	message     string
 	initialized bool
+	choose      func(string)
+	parent      *overlayState
+	cancel      context.CancelFunc
 }
 
 type App struct {
@@ -38,31 +41,35 @@ type App struct {
 	preferences *store.Preferences
 	containers  []model.Container
 
-	gui         *gocui.Gui
-	closing     atomic.Bool
-	container   model.Container
-	project     *store.Project
-	manager     *buildmanager.Manager
-	schemes     []string
-	scheme      int
-	sims        []model.Simulator
-	simulator   int
-	testTargets []model.TestTarget
+	gui              *gocui.Gui
+	closing          atomic.Bool
+	container        model.Container
+	project          *store.Project
+	manager          *buildmanager.Manager
+	schemes          []string
+	scheme           int
+	sims             []model.Simulator
+	simulator        int
+	testTargets      []model.TestTarget
+	testCoverageOff  bool
+	testOutput       *testOutputView
+	discoveringTests string
 
-	records       []model.BuildRecord
-	buildIndex    int
-	outputs       map[string]string
-	eventNext     map[string]uint64
-	eventQueue    map[string]map[uint64]buildmanager.Event
-	focus         string
-	configRow     int
-	status        string
-	cacheSize     int64
-	loading       bool
-	outputFollow  bool
-	verboseOutput bool
-	overlay       *overlayState
-	generation    atomic.Uint64
+	records         []model.BuildRecord
+	buildIndex      int
+	outputs         map[string]string
+	eventNext       map[string]uint64
+	eventQueue      map[string]map[uint64]buildmanager.Event
+	focus           string
+	configRow       int
+	status          string
+	cacheSize       int64
+	loading         bool
+	outputFollow    bool
+	verboseOutput   bool
+	overlay         *overlayState
+	renderedOverlay *overlayState
+	generation      atomic.Uint64
 
 	mode              appMode
 	cloud             *cloudState
@@ -171,6 +178,7 @@ func (a *App) chooseContainer(index int) {
 		return
 	}
 	a.container = a.containers[index]
+	a.testCoverageOff = a.preferences.CoverageDisabled(a.container.Path)
 	a.overlay = nil
 	a.loading = true
 	a.status = "Loading schemes..."
@@ -364,6 +372,12 @@ func (a *App) applyBuildEvent(event buildmanager.Event) {
 		a.outputs[event.Record.ID] += event.Output
 	}
 	a.status = statusForRecord(event.Record)
+	if event.Record.ID == a.discoveringTests && !event.Record.Phase.Active() {
+		a.discoveringTests = ""
+		if event.Record.Phase == model.PhaseSucceeded && a.mode == modeLocal && a.overlay == nil && len(a.records) > 0 && a.records[a.buildIndex].ID == event.Record.ID {
+			a.openDiscoveredTests(event.Record)
+		}
+	}
 }
 
 func statusForRecord(record model.BuildRecord) string {
