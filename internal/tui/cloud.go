@@ -1095,6 +1095,9 @@ func isTextualLogName(name string) bool {
 
 func (a *App) openCloudConfigPicker(*gocui.Gui, *gocui.View) error {
 	c := a.cloud
+	if c != nil && c.configRow == 2 {
+		return a.showContextDetails(nil, nil)
+	}
 	if c == nil || c.setupErr != nil || c.service == nil {
 		a.status = cloudErrorMessage(cloudSetupError(c))
 		return nil

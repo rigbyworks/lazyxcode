@@ -37,8 +37,14 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 | `y` | Copy the displayed output | Copy the displayed output |
 | `j`, `k`, arrows | Navigate or scroll | Same; moving past the last run loads older runs |
 | `g`, `G` | First/last activity or top/follow output | Same |
-| `?` | Show help | Same |
+| `:` | Search available actions | Same, with Cloud actions only |
+| `i` | Show full status and project details | Show connection details and complete warnings |
+| `?` | Show keyboard help | Same |
 | `q`, `Ctrl-C` | Quit | Same |
+
+The footer shows a few actions for the focused pane. Press `:` to search the full action menu; existing shortcuts still work. Status messages appear in the header, and `i` opens their complete text in a wrapping, scrollable details view.
+
+Cloud configuration stays compact: Product, Workflow, connection status, and refresh timing. Select the connection row or press `i` to inspect warnings, errors, and downloads. Full connection warnings also appear in concise Output, including when there are no build runs.
 
 Distinct scheme/target pairs can build or test concurrently. Successful simulator builds boot the selected simulator, open Simulator.app, install the generated app, and launch it. Physical-device builds deploy and launch through `devicectl`; Mac builds launch the generated app directly. Simulator and physical-device launches remain attached and stream the app's standard output and error, including `print` output, until the app exits. Press `x` to stop the running app. Starting another build for the same scheme and target stops the attached app first; other duplicate activities are rejected because they share an incremental DerivedData cache.
 

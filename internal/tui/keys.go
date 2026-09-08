@@ -34,6 +34,8 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 			binding{view, 'o', a.openInXcode},
 			binding{view, 'a', a.byMode(nil, a.openCloudArtifactPicker)},
 			binding{view, 'm', a.toggleMode},
+			binding{view, ':', a.showActions},
+			binding{view, 'i', a.showContextDetails},
 			binding{view, '?', a.showHelp},
 			binding{view, 'q', a.requestQuit},
 			binding{view, gocui.KeyCtrlC, a.requestQuit},
@@ -103,7 +105,7 @@ func (a *App) moveConfig(delta int) func(*gocui.Gui, *gocui.View) error {
 	return func(*gocui.Gui, *gocui.View) error {
 		if a.mode == modeCloud {
 			if a.cloud != nil {
-				a.cloud.configRow = (a.cloud.configRow + delta + 2) % 2
+				a.cloud.configRow = (a.cloud.configRow + delta + 3) % 3
 			}
 			return nil
 		}
@@ -386,6 +388,8 @@ g / G                First/last row or output position
 v                    Toggle concise/raw output
 y                    Copy displayed output to clipboard
 o                    Open project or workspace in Xcode
+:                    Search all actions
+i                    Show status and connection details
 ?                    Show this help
 q / Ctrl-C           Quit
 
@@ -519,7 +523,7 @@ func clampOverlayOrigin(overlay *overlayState, view *gocui.View) {
 	view.SetOrigin(0, overlay.origin)
 }
 
-func (a *App) chooseOverlay(*gocui.Gui, *gocui.View) error {
+func (a *App) chooseOverlay(g *gocui.Gui, _ *gocui.View) error {
 	if a.overlay == nil {
 		return nil
 	}
@@ -540,6 +544,12 @@ func (a *App) chooseOverlay(*gocui.Gui, *gocui.View) error {
 	kind := a.overlay.kind
 	a.overlay = nil
 	switch kind {
+	case "actions":
+		for _, action := range a.availableActions() {
+			if action.key == item.ID {
+				return action.run(g, nil)
+			}
+		}
 	case "container":
 		a.chooseContainer(containerIndex(a.containers, item.ID))
 	case "scheme":

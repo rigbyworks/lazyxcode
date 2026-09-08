@@ -423,7 +423,7 @@ func TestCloudNotConfiguredShowsGuidanceAndKeepsLocalUsable(t *testing.T) {
 	a := h.app
 	h.press(a.toggleMode)
 	h.layout()
-	for _, name := range []string{"build", "output"} {
+	for _, name := range []string{"output"} {
 		if buffer := h.view(name).Buffer(); !strings.Contains(buffer, xcodecloud.EnvPrivateKeyPath) {
 			t.Fatalf("%s pane lacks setup guidance: %q", name, buffer)
 		}
@@ -451,8 +451,8 @@ func TestCloudNotConfiguredShowsGuidanceAndKeepsLocalUsable(t *testing.T) {
 		t.Fatalf("retry did not connect: err=%v runs=%d", a.cloud.setupErr, len(a.cloud.runs))
 	}
 	h.layout()
-	if !strings.Contains(h.view("build").Buffer(), "private key is readable") {
-		t.Fatalf("credential warning was hidden: %q", h.view("build").Buffer())
+	if !strings.Contains(h.view("build").Buffer(), "! 1 warning") || !strings.Contains(h.view("output").Buffer(), "private key is readable") {
+		t.Fatalf("credential warning was hidden: %q / %q", h.view("build").Buffer(), h.view("output").Buffer())
 	}
 }
 
@@ -871,7 +871,7 @@ func TestCloudArtifactPickerDownloadsCancelsAndFails(t *testing.T) {
 	a.overlay.selected = 0
 	h.press(a.chooseOverlay)
 	h.layout()
-	if !strings.Contains(h.view("build").Buffer(), "Downloading Logs.zip") {
+	if !strings.Contains(h.view("build").Buffer(), "Downloading...") || !strings.Contains(h.view("header").Buffer(), "Logs.zip") {
 		t.Fatalf("download progress not shown: %q", h.view("build").Buffer())
 	}
 	h.press(a.byMode(a.stopBuild, a.cancelCloudDownload))

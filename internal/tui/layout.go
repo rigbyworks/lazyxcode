@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jesseduffield/gocui"
+	"github.com/mwahlig/lazy-xcode/internal/model"
 )
 
 var roundedFrame = []rune{'─', '│', '╭', '╮', '╰', '╯'}
@@ -140,7 +142,16 @@ func (a *App) ensureHeader(g *gocui.Gui, maxX int) error {
 	if a.mode == modeCloud {
 		name += " | Xcode Cloud"
 	}
-	fmt.Fprint(v, truncate(" lazy-xcode | "+name, maxX))
+	title := " lazy-xcode | " + name
+	if maxX >= 74 && a.status != "" {
+		title = truncate(title, maxX/2)
+		status := truncate(strings.Join(strings.Fields(a.status), " "), maxX-len([]rune(title))-8) + " [i]"
+		fmt.Fprint(v, title+strings.Repeat(" ", max(2, maxX-len([]rune(title))-len([]rune(status))-1))+status)
+	} else if a.status != "" {
+		fmt.Fprint(v, truncate(strings.Join(strings.Fields(a.status), " "), maxX-5)+" [i]")
+	} else {
+		fmt.Fprint(v, truncate(title, maxX))
+	}
 	return nil
 }
 
@@ -151,33 +162,65 @@ func (a *App) ensureFooter(g *gocui.Gui, y, maxX int) error {
 	}
 	v.Visible, v.Frame, v.Wrap = true, false, false
 	v.Clear()
-	keys := a.footerKeys(maxX)
-	if a.status != "" {
-		keys += "  |  " + a.status
-	}
-	fmt.Fprint(v, truncate(keys, maxX))
+	fmt.Fprint(v, a.footerKeys(maxX))
 	return nil
 }
 
-// footerKeys lists only the actions that apply to the visible mode so that a
-// key can never trigger an invisible local mutation from Cloud mode.
-func (a *App) footerKeys(maxX int) string {
-	if a.mode == modeCloud {
-		switch {
-		case maxX >= 110:
-			return "[Tab] Focus [Enter] Select [o] Xcode [r] Refresh [L] Older [a] Files [v] Raw [y] Copy [m] Local [?] Help [q] Quit"
-		case maxX >= 68:
-			return " Tab/Enter  o Xcode  r Refresh  L Older  a Files  v Raw  y Copy  m Local  ? Help  q Quit"
+// Contextual hints are admitted as whole items. The action menu and mode
+// switch keep their places when the terminal narrows.
+func (a *App) footerKeys(width int) string {
+	if a.overlay != nil {
+		if a.overlay.kind == "help" {
+			return " [j/k] Scroll   [Esc] Close"
 		}
-		return " o Xcode  r Refresh  L Older  m Local  q Quit"
+		return " [Enter] Select   [Esc] Back"
 	}
-	switch {
-	case maxX >= 110:
-		return "[Tab] Focus [Enter] Select [o] Xcode [b] Build [r] Run [t] Test [x] Stop [R] Reload [v] Raw [y] Copy [m] Cloud [?] Help [q] Quit"
-	case maxX >= 68:
-		return " Tab/Enter  o Xcode  b Build  r Run  t Test  x Stop  R Reload  v Raw  y Copy  m Cloud  ? Help  q Quit"
+	mode := "[m] Cloud"
+	if a.mode == modeCloud {
+		mode = "[m] Local"
 	}
-	return " o Xcode  b Build  r Run  t Test  x Stop  R Reload  m Cloud  q Quit"
+	anchors := "[:] Actions   " + mode
+	var hints []string
+	switch a.focus {
+	case "builds":
+		if a.mode == modeCloud {
+			hints = []string{"[Enter] Results", "[a] Files", "[r] Refresh"}
+		} else {
+			hints = []string{"[r] Run", "[b] Build"}
+			if len(a.records) > 0 && a.buildIndex < len(a.records) {
+				record := a.records[a.buildIndex]
+				if record.Phase.Active() {
+					hints = []string{"[x] Stop", "[t] Test"}
+				} else if record.OperationKind() == model.OperationTest || record.OperationKind() == model.OperationDiscoverTests {
+					hints = []string{"[Enter] Results", "[t] Test"}
+				}
+			}
+		}
+	case "output":
+		hints = []string{"[j/k] Scroll", "[y] Copy", "[v] Raw"}
+		if a.verboseOutput && a.mode == modeLocal || a.mode == modeCloud && a.cloud != nil && a.cloud.verbose {
+			hints[2] = "[v] Concise"
+		}
+		if a.selectedTestOutput() != nil {
+			hints = []string{"[Enter] Actions", "[Esc] Log", "[y] Copy"}
+		}
+	default:
+		hints = []string{"[Enter] Edit", "[b] Build", "[t] Test"}
+		if a.mode == modeCloud {
+			hints = []string{"[Enter] Edit", "[r] Refresh"}
+		}
+	}
+	visible := []string{}
+	for _, hint := range hints {
+		candidate := " " + strings.Join(append(append([]string{}, visible...), hint), "   ") + "   " + anchors
+		if len([]rune(candidate)) <= width {
+			visible = append(visible, hint)
+		}
+	}
+	if len(visible) == 0 {
+		return " " + anchors
+	}
+	return " " + strings.Join(visible, "   ") + "   " + anchors
 }
 
 func (a *App) ensureView(g *gocui.Gui, name string, x0, y0, x1, y1 int, title string, highlight bool) error {
@@ -224,7 +267,7 @@ func (a *App) layoutOverlay(g *gocui.Gui, maxX, maxY int) error {
 	if err != nil && !gocui.IsUnknownView(err) {
 		return err
 	}
-	list.Visible, list.Wrap, list.FrameRunes = true, false, roundedFrame
+	list.Visible, list.Wrap, list.FrameRunes = true, a.overlay.kind == "help", roundedFrame
 	if !filter.Visible {
 		list.Title = " " + a.overlay.title + " "
 	} else {
@@ -245,8 +288,8 @@ func (a *App) hideViews(g *gocui.Gui) {
 }
 
 func (a *App) hideOverlay(g *gocui.Gui) {
-	for _, name := range []string{"filter", "overlay"} {
 	a.renderedOverlay = nil
+	for _, name := range []string{"filter", "overlay"} {
 		if v, err := g.View(name); err == nil {
 			v.Visible = false
 		}

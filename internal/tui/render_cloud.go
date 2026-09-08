@@ -16,7 +16,11 @@ func (a *App) renderCloud(buildView, buildsView, outputView *gocui.View) error {
 	buildView.Clear()
 	buildWidth, buildHeight := buildView.InnerSize()
 	for _, line := range a.cloudConfigLines(buildHeight, now) {
-		writeViewLine(buildView, buildWidth, line)
+		if strings.Contains(line, "! ") {
+			fmt.Fprintf(buildView, "%s%s%s\n", ansiBoldYellow, truncate(line, buildWidth), ansiReset)
+		} else {
+			writeViewLine(buildView, buildWidth, line)
+		}
 	}
 
 	buildsView.Clear()
@@ -59,18 +63,9 @@ func (a *App) renderCloud(buildView, buildsView, outputView *gocui.View) error {
 func (a *App) cloudConfigLines(height int, now time.Time) []string {
 	c := a.cloud
 	if c == nil || c.setupErr != nil || c.service == nil {
-		if height >= 7 {
-			return []string{
-				"  Xcode Cloud is not configured",
-				"",
-				"  Set " + xcodecloud.EnvIssuerID + ",",
-				"  " + xcodecloud.EnvKeyID + ", and",
-				"  " + xcodecloud.EnvPrivateKeyPath + ".",
-				"  Press r to retry or m for Local.",
-			}
-		}
-		return []string{"  Xcode Cloud not configured", "  See Output for setup steps", "  [m] Local"}
+		return []string{"  Setup required", "  See Output for steps", "", "  [i] Connection details", "  [r] Retry"}
 	}
+
 	product := "Select a product..."
 	if selected, ok := c.selectedProduct(); ok {
 		product = selected.Name
@@ -89,26 +84,26 @@ func (a *App) cloudConfigLines(height int, now time.Time) []string {
 	if a.focus == "build" {
 		if c.configRow == 0 {
 			prefix0 = "> "
-		} else {
+		} else if c.configRow == 1 {
 			prefix1 = "> "
 		}
 	}
-	updated := a.cloudUpdatedLine(now)
+	prefix2 := "  "
+	if a.focus == "build" && c.configRow == 2 {
+		prefix2 = "> "
+	}
+	lines := []string{
+		prefix0 + "Product   " + product,
+		prefix1 + "Workflow  " + workflow,
+		"",
+		prefix2 + a.cloudConnectionLabel() + "  [i]",
+		"  Read-only / sync " + formatPollInterval(c.pollInterval()),
+	}
 	if height >= 7 {
-		return []string{
-			prefix0 + "Product     " + product + "  [>]",
-			prefix1 + "Workflow    " + workflow + "  [>]",
-			"",
-			"  Read-only  [r] Refresh  [L] Older  [a] Files",
-			"  " + updated,
-			"  Polling every " + formatPollInterval(c.pollInterval()),
-		}
+		lines = append(lines, "  "+a.cloudUpdatedLine(now))
 	}
-	return []string{
-		prefix0 + "Product  " + product + " [>]",
-		prefix1 + "Workflow " + workflow + " [>]",
-		"  [r] Refresh  [L] Older  [a] Artifacts  " + updated,
-	}
+	return lines
+
 }
 
 func formatPollInterval(interval time.Duration) string {
@@ -124,22 +119,14 @@ func (a *App) cloudUpdatedLine(now time.Time) string {
 	case c.loadingMore:
 		return "Loading more runs..."
 	case c.loading != "":
-		return c.loading
+		return "Syncing..."
 	case c.download != nil:
-		line := "Downloading " + c.download.artifact.Name
-		if c.download.written > 0 {
-			line += " " + formatBytes(c.download.written)
-			if c.download.artifact.Size > 0 {
-				line += " of " + formatBytes(c.download.artifact.Size)
-			}
-		}
-		return line
+		return "Received " + formatBytes(c.download.written)
+
 	case c.err != "" && c.stale:
-		return "Stale - " + c.err
+		return "Stale / refresh failed"
 	case c.err != "":
-		return c.err
-	case len(c.warnings) > 0:
-		return "Warning: " + c.warnings[0]
+		return "Refresh failed"
 	case c.lastRefresh.IsZero():
 		return "Not refreshed yet"
 	}
@@ -185,6 +172,14 @@ func (a *App) cloudEmptyActivityMessage() string {
 }
 
 func (a *App) cloudOutputText(now time.Time) string {
+	text := a.cloudRunOutputText(now)
+	if a.cloud != nil && len(a.cloud.warnings) > 0 && !a.cloud.verbose {
+		text += "\n\nCONNECTION WARNINGS\n\n" + strings.Join(a.cloud.warnings, "\n\n") + "\n\n[i] Connection details"
+	}
+	return text
+}
+
+func (a *App) cloudRunOutputText(now time.Time) string {
 	c := a.cloud
 	if c == nil || c.setupErr != nil || c.service == nil {
 		return cloudSetupGuidance(cloudSetupError(c))
