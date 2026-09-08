@@ -126,7 +126,7 @@ func (a *App) renderLocal(buildView, buildsView, outputView *gocui.View) error {
 		output := ansiPattern.ReplaceAllString(a.outputs[record.ID], "")
 		if !a.verboseOutput {
 			if record.OperationKind() == model.OperationTest {
-				output = conciseTestOutputAt(output, time.Now())
+				output = conciseTestOutputAt(output, time.Now(), record.Phase)
 			} else {
 				output = conciseBuildOutputAt(output, time.Now())
 			}
@@ -444,7 +444,7 @@ type conciseTestSuite struct {
 	duration    time.Duration
 }
 
-func conciseTestOutputAt(raw string, now time.Time) string {
+func conciseTestOutputAt(raw string, now time.Time, phase model.Phase) string {
 	lines := strings.Split(raw, "\n")
 	steps := collectConciseSteps(lines)
 	suites := make([]conciseTestSuite, 0)
@@ -529,6 +529,22 @@ func conciseTestOutputAt(raw string, now time.Time) string {
 			outcome = trimmed
 		}
 	}
+	if !phase.Active() {
+		for index := range suites {
+			if suites[index].status != "running" && suites[index].status != "" {
+				continue
+			}
+			suites[index].currentTest = ""
+			switch {
+			case suites[index].failed > 0:
+				suites[index].status = "failed"
+			case phase == model.PhaseSucceeded:
+				suites[index].status = "passed"
+			default:
+				suites[index].status = "stopped"
+			}
+		}
+	}
 
 	result := make([]string, 0, 16)
 	if intro != "" {
@@ -550,11 +566,13 @@ func conciseTestOutputAt(raw string, now time.Time) string {
 		result = append(result, "  ● Waiting for test suites...")
 	} else {
 		for _, suite := range visibleSuites {
-			marker := "✓"
-			if suite.status == "running" || suite.status == "" {
-				marker = "●"
+			marker := "○"
+			if suite.status == "passed" {
+				marker = "✓"
 			} else if suite.status == "failed" || suite.failed > 0 {
 				marker = "✗"
+			} else if suite.status == "running" || suite.status == "" {
+				marker = "●"
 			}
 			details := suite.status
 			if suite.passed+suite.failed > 0 {

@@ -487,7 +487,7 @@ Test Suite 'LoginTests' failed at 2026-08-17 10:00:01.500.
 Test Suite 'AppTests.xctest' failed at 2026-08-17 10:00:01.500.
 Test Suite 'Selected tests' failed at 2026-08-17 10:00:01.500.
 ** TEST FAILED **`
-	output := conciseTestOutputAt(raw, time.UnixMilli(105000))
+	output := conciseTestOutputAt(raw, time.UnixMilli(105000), model.PhaseTestFailed)
 	for _, expected := range []string{
 		"BUILD PREPARATION", "Compile sources", "2.4s", "TEST SUITES (1)",
 		"✗ LoginTests", "1 passed, 1 failed", "1.5s",
@@ -504,6 +504,29 @@ Test Suite 'Selected tests' failed at 2026-08-17 10:00:01.500.
 	}
 }
 
+func TestConciseXCTestOutputCompletesSuiteAfterSuccessfulRun(t *testing.T) {
+	raw := `Test Suite 'LoginTests' started at 2026-08-17 10:00:00.000.
+Test Case '-[AppTests.LoginTests testValidLogin]' started.
+Test Case '-[AppTests.LoginTests testValidLogin]' passed (0.200 seconds).
+** TEST SUCCEEDED **`
+	output := conciseTestOutputAt(raw, time.Now(), model.PhaseSucceeded)
+	for _, expected := range []string{"✓ LoginTests", "1 passed", "TEST SUCCEEDED"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("completed test summary missing %q:\n%s", expected, output)
+		}
+	}
+	for _, stale := range []string{"● LoginTests", "↳ testValidLogin"} {
+		if strings.Contains(output, stale) {
+			t.Fatalf("completed test summary retained %q:\n%s", stale, output)
+		}
+	}
+	activeRaw := strings.TrimSuffix(raw, "\n** TEST SUCCEEDED **")
+	activeOutput := conciseTestOutputAt(activeRaw, time.Now(), model.PhaseTesting)
+	if !strings.Contains(activeOutput, "● LoginTests") {
+		t.Fatalf("active test summary did not retain running suite:\n%s", activeOutput)
+	}
+}
+
 func TestConciseSwiftTestingOutputShowsSuiteResult(t *testing.T) {
 	raw := `[lazy-xcode] Testing App on iPhone 17 Pro (26.0) — Unit Tests
 ◇ Suite SearchResultTests started.
@@ -511,7 +534,7 @@ func TestConciseSwiftTestingOutputShowsSuiteResult(t *testing.T) {
 ✔ Test lookupCoverArt passed after 0.001 seconds.
 ✔ Suite SearchResultTests passed after 0.002 seconds.
 ✔ Test run with 1 test in 1 suite passed after 0.003 seconds.`
-	output := conciseTestOutputAt(raw, time.Now())
+	output := conciseTestOutputAt(raw, time.Now(), model.PhaseSucceeded)
 	for _, expected := range []string{"TEST SUITES (1)", "✓ SearchResultTests", "passed", "2ms", "Test run with 1 test"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("Swift Testing summary missing %q:\n%s", expected, output)
