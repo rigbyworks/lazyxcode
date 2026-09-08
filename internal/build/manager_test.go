@@ -2,7 +2,9 @@ package build
 
 import (
 	"context"
+	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -33,9 +35,9 @@ func (f *fakeExecutor) Build(ctx context.Context, writer io.Writer, _ model.Cont
 	}
 }
 
-func (f *fakeExecutor) Test(ctx context.Context, writer io.Writer, _ model.Container, _ string, simulator model.Simulator, _ string, targets []string) error {
+func (f *fakeExecutor) Test(ctx context.Context, writer io.Writer, _ model.Container, _ string, simulator model.Simulator, _ string, options model.TestOptions) error {
 	f.started <- "test:" + simulator.ID
-	_, _ = io.WriteString(writer, "ran tests "+strings.Join(targets, ",")+"\n")
+	_, _ = io.WriteString(writer, "ran tests "+strings.Join(options.Targets, ",")+"\n")
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -370,5 +372,44 @@ func TestStartingBuildReplacesRunningAppOnSameDestination(t *testing.T) {
 	defer mu.Unlock()
 	if final[first.ID] != model.PhaseCancelled || final[second.ID] != model.PhaseSucceeded {
 		t.Fatalf("final phases = %#v", final)
+	}
+}
+
+type failingTestExecutor struct {
+	fakeExecutor
+	options chan model.TestOptions
+}
+
+func (f *failingTestExecutor) Test(_ context.Context, _ io.Writer, _ model.Container, _ string, _ model.Simulator, _ string, options model.TestOptions) error {
+	f.options <- options
+	if err := os.MkdirAll(options.ResultBundlePath, 0700); err != nil {
+		return err
+	}
+	return errors.New("intentional test failure")
+}
+func TestManagerRetainsResultBundleForFailedTests(t *testing.T) {
+	executor := &failingTestExecutor{options: make(chan model.TestOptions, 1)}
+	manager := newTestManager(t, executor, nil)
+	record, err := manager.Start(context.Background(), Request{Scheme: "App", Simulator: model.Simulator{ID: "MAC", Platform: "macOS"}, Operation: model.OperationTest, Coverage: true, Targets: []string{"AppTests/Checks/failure()"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.Wait()
+	options := <-executor.options
+	records, err := manager.store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Phase != model.PhaseTestFailed || records[0].ResultBundlePath != options.ResultBundlePath || !records[0].Coverage {
+		t.Fatalf("record: %+v", records)
+	}
+	if strings.HasPrefix(record.ResultBundlePath, record.DerivedDataKey) {
+		t.Fatal("results stored in DerivedData")
+	}
+	if err := manager.store.ClearCache(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(record.ResultBundlePath); err != nil {
+		t.Fatal("failed test bundle lost", err)
 	}
 }

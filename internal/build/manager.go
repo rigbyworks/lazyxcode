@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,7 +17,7 @@ import (
 
 type Executor interface {
 	Build(context.Context, io.Writer, model.Container, string, model.Simulator, string) error
-	Test(context.Context, io.Writer, model.Container, string, model.Simulator, string, []string) error
+	Test(context.Context, io.Writer, model.Container, string, model.Simulator, string, model.TestOptions) error
 	Product(context.Context, model.Container, string, model.Simulator, string) (model.Product, error)
 	Boot(context.Context, model.Simulator) error
 	Install(context.Context, model.Simulator, model.Product) error
@@ -36,6 +37,7 @@ type Request struct {
 	Operation model.Operation
 	TestScope string
 	Targets   []string
+	Coverage  bool
 }
 
 type Manager struct {
@@ -73,7 +75,7 @@ func (m *Manager) Start(parent context.Context, request Request) (model.BuildRec
 	ctx, cancel := context.WithCancel(parent)
 	record := model.BuildRecord{
 		ID: id, Container: request.Container, Scheme: request.Scheme, Simulator: request.Simulator,
-		Phase: model.PhaseQueued, Operation: request.Operation, TestScope: request.TestScope, TestTargets: request.Targets,
+		Phase: model.PhaseQueued, Operation: request.Operation, TestScope: request.TestScope, TestTargets: append([]string(nil), request.Targets...), Coverage: request.Coverage,
 		StartedAt: time.Now(), DerivedDataKey: derivedData,
 	}
 	m.jobs[id] = cancel
@@ -88,6 +90,19 @@ func (m *Manager) Start(parent context.Context, request Request) (model.BuildRec
 		return model.BuildRecord{}, err
 	}
 	record.LogPath = logPath
+	if request.Operation == model.OperationTest || request.Operation == model.OperationDiscoverTests {
+		dir, err := m.store.NewResultDir(id)
+		if err != nil {
+			logFile.Close()
+			m.release(record, key)
+			return model.BuildRecord{}, err
+		}
+		if request.Operation == model.OperationDiscoverTests {
+			record.EnumerationPath = filepath.Join(dir, "tests.json")
+		} else {
+			record.ResultBundlePath = filepath.Join(dir, "Results.xcresult")
+		}
+	}
 	m.persist(record)
 	m.emit(Event{Record: record})
 	m.wg.Add(1)
@@ -100,7 +115,7 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 	defer logFile.Close()
 	defer m.release(record, key)
 	writer := &eventWriter{file: logFile, record: &record, emit: m.emit}
-	if record.OperationKind() == model.OperationTest {
+	if record.OperationKind() == model.OperationTest || record.OperationKind() == model.OperationDiscoverTests {
 		m.runTests(ctx, &record, writer)
 		return
 	}
@@ -165,7 +180,7 @@ func (m *Manager) runTests(ctx context.Context, record *model.BuildRecord, write
 	}
 	if !m.stage(ctx, record, model.PhaseTesting, func() error {
 		progress := newProgressWriter(writer, time.Now)
-		err := m.executor.Test(ctx, progress, record.Container, record.Scheme, record.Simulator, record.DerivedDataKey, record.TestTargets)
+		err := m.executor.Test(ctx, progress, record.Container, record.Scheme, record.Simulator, record.DerivedDataKey, model.TestOptions{Targets: record.TestTargets, ResultBundlePath: record.ResultBundlePath, EnumerationPath: record.EnumerationPath, Coverage: record.Coverage})
 		progress.Finish()
 		return err
 	}, model.PhaseTestFailed) {

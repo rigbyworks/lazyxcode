@@ -17,12 +17,13 @@ type Preferences struct {
 const preferencesVersion = 2
 
 type preferenceData struct {
-	Version        int               `json:"version"`
-	Containers     map[string]string `json:"containers"`
-	Schemes        map[string]string `json:"schemes"`
-	Simulators     map[string]string `json:"simulators"`
-	CloudProducts  map[string]string `json:"cloudProducts,omitempty"`
-	CloudWorkflows map[string]string `json:"cloudWorkflows,omitempty"`
+	Version          int               `json:"version"`
+	Containers       map[string]string `json:"containers"`
+	Schemes          map[string]string `json:"schemes"`
+	Simulators       map[string]string `json:"simulators"`
+	CloudProducts    map[string]string `json:"cloudProducts,omitempty"`
+	CloudWorkflows   map[string]string `json:"cloudWorkflows,omitempty"`
+	CoverageDisabled map[string]bool   `json:"coverageDisabled,omitempty"`
 }
 
 func NewPreferences() (*Preferences, error) {
@@ -45,6 +46,9 @@ func NewPreferences() (*Preferences, error) {
 }
 
 func (p *Preferences) ensureMaps() {
+	if p.data.CoverageDisabled == nil {
+		p.data.CoverageDisabled = map[string]bool{}
+	}
 	if p.data.Containers == nil {
 		p.data.Containers = map[string]string{}
 	}
@@ -138,5 +142,17 @@ func (p *Preferences) SetCloudWorkflow(container, workflow string) error {
 	} else {
 		p.data.CloudWorkflows[container] = workflow
 	}
+	return writeJSONAtomic(p.path, p.data)
+}
+
+func (p *Preferences) CoverageDisabled(container string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.data.CoverageDisabled[container]
+}
+func (p *Preferences) SetCoverageDisabled(container string, disabled bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.data.CoverageDisabled[container] = disabled
 	return writeJSONAtomic(p.path, p.data)
 }

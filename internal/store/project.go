@@ -208,17 +208,31 @@ func (p *Project) Save(record model.BuildRecord) ([]model.BuildRecord, error) {
 		history = append(history, record)
 	}
 	sort.SliceStable(history, func(i, j int) bool { return history[i].StartedAt.After(history[j].StartedAt) })
+	var expired []model.BuildRecord
 	if len(history) > historyLimit {
-		for _, old := range history[historyLimit:] {
-			if old.LogPath != "" {
-				_ = os.Remove(old.LogPath)
+		kept := make([]model.BuildRecord, 0, historyLimit)
+		for _, old := range history {
+			if len(kept) < historyLimit || old.Phase.Active() {
+				kept = append(kept, old)
+			} else {
+				expired = append(expired, old)
 			}
 		}
-		history = history[:historyLimit]
+		history = kept
 	}
 	if err := writeJSONAtomic(filepath.Join(p.stateDir, "builds.json"), historyFile{Version: 1, Builds: history}); err != nil {
 		return nil, err
 	}
+	for _, old := range expired {
+		if old.ID != "" && filepath.Base(old.ID) == old.ID && old.ID != "." && old.ID != ".." {
+			_ = os.RemoveAll(filepath.Join(p.stateDir, "results", old.ID))
+		}
+		logs := filepath.Join(p.stateDir, "logs") + string(os.PathSeparator)
+		if old.LogPath != "" && strings.HasPrefix(filepath.Clean(old.LogPath), logs) {
+			_ = os.Remove(old.LogPath)
+		}
+	}
+
 	return history, nil
 }
 
@@ -292,4 +306,14 @@ func writeJSONAtomic(path string, value any) error {
 		return err
 	}
 	return os.Rename(tempName, path)
+}
+
+// NewResultDir allocates a directory outside DerivedData so cache clearing
+// preserves test results. Only activity-owned directories are pruned.
+func (p *Project) NewResultDir(id string) (string, error) {
+	if id == "" || id != filepath.Base(id) || strings.ContainsAny(id, `/\`) || id == "." || id == ".." {
+		return "", errors.New("invalid activity ID")
+	}
+	dir := filepath.Join(p.stateDir, "results", id)
+	return dir, os.MkdirAll(dir, 0o700)
 }

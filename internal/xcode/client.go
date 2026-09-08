@@ -387,10 +387,22 @@ func (c *Client) Build(ctx context.Context, writer io.Writer, container model.Co
 	return c.runner.Stream(ctx, writer, "xcodebuild", args...)
 }
 
-func (c *Client) Test(ctx context.Context, writer io.Writer, container model.Container, scheme string, simulator model.Simulator, derivedData string, targets []string) error {
+func (c *Client) Test(ctx context.Context, writer io.Writer, container model.Container, scheme string, simulator model.Simulator, derivedData string, options model.TestOptions) error {
 	args := append(containerArgs(container), "-scheme", scheme, "-destination", "id="+simulator.ID, "-derivedDataPath", derivedData, "-showBuildTimingSummary")
-	for _, target := range targets {
+	for _, target := range options.Targets {
 		args = append(args, "-only-testing:"+target)
+	}
+	if options.EnumerationPath != "" {
+		args = append(args, "-enumerate-tests", "-test-enumeration-style", "flat", "-test-enumeration-format", "json", "-test-enumeration-output-path", options.EnumerationPath)
+	} else {
+		if options.ResultBundlePath != "" {
+			args = append(args, "-resultBundlePath", options.ResultBundlePath)
+		}
+		coverage := "NO"
+		if options.Coverage {
+			coverage = "YES"
+		}
+		args = append(args, "-enableCodeCoverage", coverage)
 	}
 	args = append(args, "test")
 	return c.runner.Stream(ctx, writer, "xcodebuild", args...)

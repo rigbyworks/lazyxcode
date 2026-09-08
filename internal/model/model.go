@@ -76,9 +76,10 @@ func (p Phase) Active() bool {
 type Operation string
 
 const (
-	OperationBuild Operation = "build"
-	OperationRun   Operation = "run"
-	OperationTest  Operation = "test"
+	OperationBuild         Operation = "build"
+	OperationRun           Operation = "run"
+	OperationTest          Operation = "test"
+	OperationDiscoverTests Operation = "discover_tests"
 )
 
 type TestKind string
@@ -94,24 +95,27 @@ type TestTarget struct {
 }
 
 type BuildRecord struct {
-	ID             string     `json:"id"`
-	Container      Container  `json:"container"`
-	Scheme         string     `json:"scheme"`
-	Simulator      Simulator  `json:"simulator"`
-	Phase          Phase      `json:"phase"`
-	Operation      Operation  `json:"operation,omitempty"`
-	TestScope      string     `json:"testScope,omitempty"`
-	TestTargets    []string   `json:"testTargets,omitempty"`
-	StartedAt      time.Time  `json:"startedAt"`
-	FinishedAt     *time.Time `json:"finishedAt,omitempty"`
-	Error          string     `json:"error,omitempty"`
-	DerivedDataKey string     `json:"derivedDataKey"`
-	LogPath        string     `json:"logPath"`
+	ID               string     `json:"id"`
+	Container        Container  `json:"container"`
+	Scheme           string     `json:"scheme"`
+	Simulator        Simulator  `json:"simulator"`
+	Phase            Phase      `json:"phase"`
+	Operation        Operation  `json:"operation,omitempty"`
+	TestScope        string     `json:"testScope,omitempty"`
+	ResultBundlePath string     `json:"resultBundlePath,omitempty"`
+	EnumerationPath  string     `json:"enumerationPath,omitempty"`
+	Coverage         bool       `json:"coverage,omitempty"`
+	TestTargets      []string   `json:"testTargets,omitempty"`
+	StartedAt        time.Time  `json:"startedAt"`
+	FinishedAt       *time.Time `json:"finishedAt,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	DerivedDataKey   string     `json:"derivedDataKey"`
+	LogPath          string     `json:"logPath"`
 }
 
 func (r BuildRecord) OperationKind() Operation {
 	switch r.Operation {
-	case OperationRun, OperationTest:
+	case OperationRun, OperationTest, OperationDiscoverTests:
 		return r.Operation
 	default:
 		return OperationBuild
@@ -129,4 +133,13 @@ func (r BuildRecord) Duration(now time.Time) time.Duration {
 type Product struct {
 	AppPath  string
 	BundleID string
+}
+
+// TestOptions describes one invocation. Result paths belong to the activity,
+// independently of its reusable DerivedData directory.
+type TestOptions struct {
+	Targets          []string
+	ResultBundlePath string
+	EnumerationPath  string
+	Coverage         bool
 }

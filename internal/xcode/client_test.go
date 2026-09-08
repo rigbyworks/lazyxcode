@@ -196,7 +196,7 @@ func TestTestCommandFiltersSelectedTargets(t *testing.T) {
 	runner := &fakeRunner{}
 	client := New(runner)
 	var output strings.Builder
-	err := client.Test(context.Background(), &output, model.Container{Kind: model.Workspace, Path: "/tmp/App.xcworkspace"}, "App", model.Simulator{ID: "AAAA"}, "/tmp/cache", []string{"AppTests", "ModelTests"})
+	err := client.Test(context.Background(), &output, model.Container{Kind: model.Workspace, Path: "/tmp/App.xcworkspace"}, "App", model.Simulator{ID: "AAAA"}, "/tmp/cache", model.TestOptions{Targets: []string{"AppTests", "ModelTests"}})
 	if err != nil {
 		t.Fatal(err)
 	}
