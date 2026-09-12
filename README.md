@@ -44,6 +44,8 @@ Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xco
 
 The footer shows a few actions for the focused pane. Press `:` to search the full action menu; existing shortcuts still work. Status messages appear in the header, and `i` opens their complete text in a wrapping, scrollable details view.
 
+Local build targets refresh in the background every 15 seconds and whenever you open the target picker. Newly available devices appear without restarting, including while the picker is open or a build is running. Refreshes preserve your selection and search text; a failed discovery keeps the last known list until a later refresh succeeds.
+
 Cloud configuration stays compact: Product, Workflow, connection status, and refresh timing. Select the connection row or press `i` to inspect warnings, errors, and downloads. Full connection warnings also appear in concise Output, including when there are no build runs.
 
 Distinct scheme/target pairs can build or test concurrently. Successful simulator builds boot the selected simulator, open Simulator.app, install the generated app, and launch it. Physical-device builds deploy and launch through `devicectl`; Mac builds launch the generated app directly. Simulator and physical-device launches remain attached and stream the app's standard output and error, including `print` output, until the app exits. Press `x` to stop the running app. Starting another build for the same scheme and target stops the attached app first; other duplicate activities are rejected because they share an incremental DerivedData cache.

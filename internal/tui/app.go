@@ -55,6 +55,9 @@ type App struct {
 	testOutput       *testOutputView
 	discoveringTests string
 
+	targetRefreshCancel context.CancelFunc
+	lastTargetRefresh   time.Time
+
 	records         []model.BuildRecord
 	buildIndex      int
 	outputs         map[string]string
@@ -146,6 +149,7 @@ func (a *App) refreshElapsedTimes(ctx context.Context) {
 			}
 			a.gui.Update(func(*gocui.Gui) error {
 				a.cloudTick(time.Now())
+				a.targetTick(time.Now())
 				return nil
 			})
 		}
@@ -177,6 +181,10 @@ func (a *App) chooseContainer(index int) {
 	if index < 0 || index >= len(a.containers) {
 		return
 	}
+	a.cancelTargetRefresh()
+	a.schemes = nil
+	a.sims = nil
+	a.testTargets = nil
 	a.container = a.containers[index]
 	a.testCoverageOff = a.preferences.CoverageDisabled(a.container.Path)
 	a.overlay = nil
@@ -230,6 +238,7 @@ func (a *App) loadSimulators() {
 	if len(a.schemes) == 0 || a.scheme >= len(a.schemes) {
 		return
 	}
+	a.cancelTargetRefresh()
 	scheme := a.schemes[a.scheme]
 	container := a.container
 	project := a.project
@@ -245,6 +254,7 @@ func (a *App) loadSimulators() {
 				return
 			}
 			a.loading = false
+			a.lastTargetRefresh = a.clock()
 			if err != nil {
 				a.status = err.Error()
 				return

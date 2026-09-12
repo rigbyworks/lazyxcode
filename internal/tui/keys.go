@@ -160,11 +160,8 @@ func (a *App) openConfigPicker(*gocui.Gui, *gocui.View) error {
 		}
 		a.overlay = &overlayState{kind: "scheme", title: "Select Scheme", items: items, selected: a.scheme}
 	} else {
-		items := make([]overlayItem, len(a.sims))
-		for i, simulator := range a.sims {
-			items[i] = overlayItem{ID: simulator.ID, Label: fmt.Sprintf("%-28s %-14s %-10s %s", simulator.Name, simulator.OS, simulator.KindLabel(), simulator.State)}
-		}
-		a.overlay = &overlayState{kind: "simulator", title: "Select Target", items: items, selected: a.simulator}
+		a.overlay = &overlayState{kind: "simulator", title: "Select Target", items: targetItems(a.sims), selected: a.simulator}
+		a.refreshTargets()
 	}
 	return nil
 }
