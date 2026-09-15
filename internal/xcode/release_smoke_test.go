@@ -30,7 +30,11 @@ func TestReleaseSmoke(t *testing.T) {
 	if err := client.CheckEnvironment(ctx); err != nil {
 		t.Fatal(err)
 	}
-	out, err := runner.Output(ctx, "xcrun", "simctl", "create", "lazyxcode release smoke", "com.apple.CoreSimulator.SimDeviceType.iPhone-16")
+	args := []string{"simctl", "create", "lazyxcode release smoke", "com.apple.CoreSimulator.SimDeviceType.iPhone-16"}
+	if runtime := os.Getenv("LAZYXCODE_SMOKE_RUNTIME"); runtime != "" {
+		args = append(args, runtime)
+	}
+	out, err := runner.Output(ctx, "xcrun", args...)
 	if err != nil {
 		t.Fatalf("create simulator: %s: %v", out, err)
 	}
