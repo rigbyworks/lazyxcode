@@ -6,7 +6,7 @@ if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Expected a stable vMAJOR.MINOR.PATCH tag" >&2
   exit 2
 fi
-: "${GH_TOKEN:?Set GH_TOKEN to a token with contents and pull-request access to rigbyworks/homebrew-tap}"
+gh auth status >/dev/null 2>&1 || { echo "Authenticate gh or set GH_TOKEN with tap access" >&2; exit 1; }
 gh release view "$tag" --repo rigbyworks/lazyxcode --json isDraft,isPrerelease --jq 'if .isDraft or .isPrerelease then error("Expected a published stable release") else empty end'
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 work_dir="$(mktemp -d)"

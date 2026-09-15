@@ -28,7 +28,7 @@ Use `brew update && brew upgrade lazyxcode` to verify subsequent releases. Unins
 
 ## Retry a tap update
 
-After fixing credentials or a transient failure, run the Release workflow manually with the existing tag. The version-specific branch and PR are reused. For a local retry, set `GH_TOKEN` to the tap token in your shell, run `gh auth setup-git`, and execute:
+After fixing credentials or a transient failure, run the Release workflow manually with the existing tag. The version-specific branch and PR are reused. For a local retry, use an authenticated `gh` session with access to the tap, or set `GH_TOKEN` to the tap token in your shell. Run `gh auth setup-git`, then execute:
 
 ```sh
 bash scripts/update-homebrew.sh v0.1.0
