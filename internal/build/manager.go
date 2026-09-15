@@ -143,7 +143,7 @@ func (m *Manager) run(ctx context.Context, key string, record model.BuildRecord,
 	} else if record.Simulator.Physical {
 		_, _ = fmt.Fprintf(writer, "\n[lazy-xcode] Build succeeded; deploying to %s\n", record.Simulator.Name)
 	} else {
-		_, _ = fmt.Fprintf(writer, "\n[lazy-xcode] Build succeeded; opening %s in Simulator\n", record.Simulator.Name)
+		_, _ = fmt.Fprintf(writer, "\n[lazy-xcode] Build succeeded; opening simulator %s\n", record.Simulator.Name)
 		if !m.stage(ctx, &record, model.PhaseBooting, func() error { return m.executor.Boot(ctx, record.Simulator) }, model.PhaseRunFailed) {
 			return
 		}

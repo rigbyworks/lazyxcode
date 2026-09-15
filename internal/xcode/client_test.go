@@ -212,8 +212,9 @@ func TestTestCommandFiltersSelectedTargets(t *testing.T) {
 }
 
 func TestBootOpensSimulatorWhenDeviceIsAlreadyBooted(t *testing.T) {
+	developer, app := simulatorFrontendFixture(t, false)
 	runner := &fakeRunner{
-		outputs: map[string][]byte{"simctl boot AAAA": []byte("Unable to boot device in current state: Booted")},
+		outputs: map[string][]byte{"simctl boot AAAA": []byte("Unable to boot device in current state: Booted"), "xcode-select -p": []byte(developer)},
 		errors:  map[string]error{"simctl boot AAAA": errors.New("exit status 149")},
 	}
 	client := New(runner)
@@ -222,7 +223,8 @@ func TestBootOpensSimulatorWhenDeviceIsAlreadyBooted(t *testing.T) {
 	}
 	want := []string{
 		"xcrun simctl boot AAAA",
-		"open -a Simulator",
+		"xcode-select -p",
+		"open -a " + app + " --args -CurrentDeviceUDID AAAA -AttachBootedOnStart NO",
 		"xcrun simctl bootstatus AAAA -b",
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
@@ -231,14 +233,16 @@ func TestBootOpensSimulatorWhenDeviceIsAlreadyBooted(t *testing.T) {
 }
 
 func TestBootOpensSimulatorBeforeWaitingForNewDevice(t *testing.T) {
-	runner := &fakeRunner{}
+	developer, app := simulatorFrontendFixture(t, false)
+	runner := &fakeRunner{outputs: map[string][]byte{"xcode-select -p": []byte(developer)}}
 	client := New(runner)
 	if err := client.Boot(context.Background(), model.Simulator{ID: "AAAA", State: "Shutdown"}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
 		"xcrun simctl boot AAAA",
-		"open -a Simulator",
+		"xcode-select -p",
+		"open -a " + app + " --args -CurrentDeviceUDID AAAA -AttachBootedOnStart NO",
 		"xcrun simctl bootstatus AAAA -b",
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
