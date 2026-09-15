@@ -35,3 +35,9 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go test ./internal/xcode -run '^TestReleaseSmoke$' -v -count=1 -timeout 15m
+  package:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/test-homebrew.sh

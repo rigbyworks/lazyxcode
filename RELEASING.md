@@ -47,3 +47,5 @@ LAZYXCODE_RELEASE_SMOKE=1 go test ./internal/xcode -run '^TestReleaseSmoke$' -v 
 ```
 
 This creates a fixture project and an iPhone 16 simulator, runs the real build, install, attached launch, XCTest, result-inspection, and coverage commands, then deletes the simulator. An iOS runtime must already be installed. CI runs it with Xcode 16.3 to exercise the minimum supported version and legacy Simulator. Run it locally with Xcode 27 to cover Device Hub as well.
+
+CI also runs `bash scripts/test-homebrew.sh` on a clean macOS host. It packages the current commit in a temporary tap, checks install/reinstall, upgrades between two local fixture versions, and verifies uninstall preserves state. It does not publish test versions. Homebrew requires Command Line Tools compatible with the host macOS even when full Xcode is installed.
