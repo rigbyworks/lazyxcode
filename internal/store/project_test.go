@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 func testProject(t *testing.T) *Project {
@@ -135,5 +135,34 @@ func TestCloudArtifactPathsStayInsideTheCloudCache(t *testing.T) {
 	}
 	if err := project.ClearCache(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRenamedRootsLeaveOldDataUntouched(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", root)
+	t.Setenv("XDG_CACHE_HOME", root)
+	old := filepath.Join(root, "lazy-xcode")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(old, "preferences.json")
+	if err := os.WriteFile(marker, []byte("old data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := stateRoot()
+	if err != nil || state != filepath.Join(root, "lazyxcode") {
+		t.Fatalf("state=%q error=%v", state, err)
+	}
+	cache, err := cacheRoot()
+	if err != nil || cache != filepath.Join(root, "lazyxcode") {
+		t.Fatalf("cache=%q error=%v", cache, err)
+	}
+	if _, err := NewPreferences(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil || string(data) != "old data" {
+		t.Fatalf("old data changed: %q %v", data, err)
 	}
 }

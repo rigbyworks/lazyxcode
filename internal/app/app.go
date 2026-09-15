@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mwahlig/lazy-xcode/internal/store"
-	"github.com/mwahlig/lazy-xcode/internal/tui"
-	"github.com/mwahlig/lazy-xcode/internal/xcode"
+	"github.com/rigbyworks/lazyxcode/internal/store"
+	"github.com/rigbyworks/lazyxcode/internal/tui"
+	"github.com/rigbyworks/lazyxcode/internal/xcode"
 )
 
 func Run(ctx context.Context) error {
@@ -26,9 +26,13 @@ func Run(ctx context.Context) error {
 	if len(containers) == 0 {
 		return xcode.ErrNoContainers
 	}
+	client := xcode.New(xcode.ExecRunner{})
+	if err := client.CheckEnvironment(ctx); err != nil {
+		return err
+	}
 	preferences, err := store.NewPreferences()
 	if err != nil {
 		return fmt.Errorf("load preferences: %w", err)
 	}
-	return tui.Run(ctx, directory, xcode.New(xcode.ExecRunner{}), preferences, containers)
+	return tui.Run(ctx, directory, client, preferences, containers)
 }

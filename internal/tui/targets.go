@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 const targetPollInterval = 15 * time.Second

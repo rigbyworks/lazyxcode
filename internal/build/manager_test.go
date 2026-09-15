@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mwahlig/lazy-xcode/internal/model"
-	"github.com/mwahlig/lazy-xcode/internal/store"
+	"github.com/rigbyworks/lazyxcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/store"
 )
 
 type fakeExecutor struct {
@@ -320,7 +320,7 @@ func TestManagerStreamsConsoleWhileAppIsRunning(t *testing.T) {
 	if phase != model.PhaseRunning || !manager.HasActive() {
 		t.Fatalf("activity phase = %q, active = %t", phase, manager.HasActive())
 	}
-	for _, expected := range []string{"[lazy-xcode] App console", "app console output"} {
+	for _, expected := range []string{"[lazyxcode] App console", "app console output"} {
 		if !strings.Contains(streamed, expected) {
 			t.Fatalf("runtime output missing %q: %s", expected, streamed)
 		}

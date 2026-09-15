@@ -1,19 +1,30 @@
-# lazy-xcode
+# lazyxcode
 
-`lazy-xcode` is a keyboard-first terminal interface for building, running, and testing Xcode schemes without keeping Xcode open. It discovers the current directory's Xcode containers, shared schemes, test targets, and scheme-compatible simulators, connected devices, and the current Mac, then streams each activity into its own retained log. An optional read-only Cloud mode browses recent Xcode Cloud builds for the same project.
+`lazyxcode` is a keyboard-first terminal interface for building, running, and testing Xcode schemes without keeping Xcode open. It discovers the current directory's Xcode containers, shared schemes, test targets, and scheme-compatible simulators, connected devices, and the current Mac, then streams each activity into its own retained log. An optional read-only Cloud mode browses recent Xcode Cloud builds for the same project.
 
 ## Requirements
 
-- macOS with Xcode and the command-line tools installed
+- Apple Silicon Mac running macOS 15 or newer
+- Full Xcode 16.3 or newer, selected through `xcode-select` or `DEVELOPER_DIR`
 - Go 1.25 or newer when building from source
 
 ## Install
 
 ```sh
-make install
+brew install rigbyworks/tap/lazyxcode
 ```
 
-Run `lazy-xcode` from a directory containing a top-level `.xcworkspace` or `.xcodeproj`. When more than one is present, workspaces are listed first in a startup picker and the selection is remembered.
+Upgrade with `brew update && brew upgrade lazyxcode`. Uninstall with `brew uninstall lazyxcode`; saved preferences, history, and caches remain on disk.
+
+To build from a checkout, run `make install`. Go users can also install a released version with `go install github.com/rigbyworks/lazyxcode@v0.1.0`. Run `lazyxcode --version` to identify the installed release and `lazyxcode --help` for usage.
+
+### Renaming from lazy-xcode
+
+The command is now `lazyxcode`. Update aliases and scripts, and remove an obsolete `lazy-xcode` executable manually after confirming its location with `command -v lazy-xcode`.
+
+Cloud environment variables now start with `LAZYXCODE_`, replacing `LAZY_XCODE_`. Existing state and cache directories named `lazy-xcode` are left untouched. The renamed tool starts with fresh preferences and history under `lazyxcode`; no automatic migration or old-name fallback is performed.
+
+Run `lazyxcode` from a directory containing a top-level `.xcworkspace` or `.xcodeproj`. When more than one is present, workspaces are listed first in a startup picker and the selection is remembered.
 
 ## Navigation
 
@@ -83,12 +94,12 @@ Press `m` to switch the three panes between Local and Cloud. Cloud mode is read-
 Cloud mode reads an App Store Connect team API key from the environment:
 
 ```sh
-export LAZY_XCODE_ASC_ISSUER_ID="<issuer id>"
-export LAZY_XCODE_ASC_KEY_ID="<key id>"
-export LAZY_XCODE_ASC_PRIVATE_KEY_PATH="$HOME/.private_keys/AuthKey_<key id>.p8"
+export LAZYXCODE_ASC_ISSUER_ID="<issuer id>"
+export LAZYXCODE_ASC_KEY_ID="<key id>"
+export LAZYXCODE_ASC_PRIVATE_KEY_PATH="$HOME/.private_keys/AuthKey_<key id>.p8"
 ```
 
-Create the key in App Store Connect under Users and Access > Integrations > App Store Connect API. Use a dedicated key with the lowest role that can read Xcode Cloud data (Developer is sufficient) rather than an Admin key, download the `.p8` file once, and keep it readable only by your user (`chmod 600`). `lazy-xcode` warns when the file is group- or world-readable.
+Create the key in App Store Connect under Users and Access > Integrations > App Store Connect API. Use a dedicated key with the lowest role that can read Xcode Cloud data (Developer is sufficient) rather than an Admin key, download the `.p8` file once, and keep it readable only by your user (`chmod 600`). `lazyxcode` warns when the file is group- or world-readable.
 
 The private key is read only to sign short-lived ES256 JSON Web Tokens in memory; it is never copied into preferences, logs, error messages, status text, or the cache. The client issues GET requests only and cannot start, cancel, or edit anything in Xcode Cloud. Individual API keys and Keychain-backed key storage are not supported yet.
 
@@ -114,11 +125,11 @@ Press `Enter` on a Cloud run to pick a test-result artifact. The first selection
 
 ## State and cache
 
-The newest 100 activity records, plus any older active activities, and their complete logs are stored below `$XDG_STATE_HOME/lazy-xcode` or `~/.local/state/lazy-xcode`. Incremental DerivedData is isolated per project, scheme, and target below `$XDG_CACHE_HOME/lazy-xcode` or `~/.cache/lazy-xcode`. Cloud artifacts are downloaded to artifact-specific directories below `projects/<project-hash>/cloud/<run-id>/artifacts/`, with filenames sanitized to stay inside that directory.
+The newest 100 activity records, plus any older active activities, and their complete logs are stored below `$XDG_STATE_HOME/lazyxcode` or `~/.local/state/lazyxcode`. Incremental DerivedData is isolated per project, scheme, and target below `$XDG_CACHE_HOME/lazyxcode` or `~/.cache/lazyxcode`. Cloud artifacts are downloaded to artifact-specific directories below `projects/<project-hash>/cloud/<run-id>/artifacts/`, with filenames sanitized to stay inside that directory.
 
 Local test bundles and exported attachments live under the project state directory in `results/<activity-id>/` and expire with their history records. Test discovery saves its test list there as well.
 
-The cache action deletes only DerivedData managed by `lazy-xcode`; it does not delete build history, logs, retained test results, downloaded cloud artifacts, project files, or Xcode's global DerivedData. The preferences file also remembers the selected Xcode Cloud product and workflow per container; files written by earlier versions load unchanged.
+The cache action deletes only DerivedData managed by `lazyxcode`; it does not delete build history, logs, retained test results, downloaded cloud artifacts, project files, or Xcode's global DerivedData. The preferences file also remembers the selected Xcode Cloud product and workflow per container; files written by earlier versions load unchanged.
 
 ## Development
 
@@ -129,3 +140,5 @@ make build
 ```
 
 Tests use fake command runners, headless gocui instances, and `httptest` servers for the App Store Connect API, so they do not require an available simulator or network access.
+
+Release maintainers: see [RELEASING.md](RELEASING.md).

@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 type Client struct {

@@ -1,4 +1,4 @@
-module github.com/mwahlig/lazy-xcode
+module github.com/rigbyworks/lazyxcode
 
 go 1.25
 

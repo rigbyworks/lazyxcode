@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/jesseduffield/gocui"
-	buildmanager "github.com/mwahlig/lazy-xcode/internal/build"
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	buildmanager "github.com/rigbyworks/lazyxcode/internal/build"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 type binding struct {
@@ -369,7 +369,7 @@ func (a *App) confirmClearCache(*gocui.Gui, *gocui.View) error {
 	}
 	a.overlay = &overlayState{
 		kind: "confirm-cache", title: "Clear DerivedData?",
-		message: "Delete only lazy-xcode managed DerivedData.\nBuild history and logs will be kept.\n",
+		message: "Delete only lazyxcode managed DerivedData.\nBuild history and logs will be kept.\n",
 		items:   []overlayItem{{ID: "cancel", Label: "Cancel"}, {ID: "clear", Label: "Clear cache"}},
 	}
 	return nil

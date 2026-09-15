@@ -3,7 +3,7 @@ package store
 import (
 	"archive/zip"
 	"context"
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 	"os"
 	"path/filepath"
 	"testing"

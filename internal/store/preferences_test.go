@@ -12,10 +12,10 @@ func testPreferences(t *testing.T, existing string) *Preferences {
 	root := filepath.Join(t.TempDir(), "state")
 	t.Setenv("XDG_STATE_HOME", root)
 	if existing != "" {
-		if err := os.MkdirAll(filepath.Join(root, "lazy-xcode"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, "lazyxcode"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, "lazy-xcode", "preferences.json"), []byte(existing), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "lazyxcode", "preferences.json"), []byte(existing), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

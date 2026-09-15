@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 func TestResultIdentifiersDisambiguateTargetsAndKeepParameterizedTestsTogether(t *testing.T) {

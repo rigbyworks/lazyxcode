@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jesseduffield/gocui"
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
@@ -210,8 +210,8 @@ func formatBuildOutput(output string) string {
 				color = ansiBoldRed
 			}
 			lines[i] = color + line + ansiReset
-		case strings.HasPrefix(strings.TrimSpace(line), "[lazy-xcode]"):
-			lines[i] = colorPrefix(line, "[lazy-xcode]", ansiCyan)
+		case strings.HasPrefix(strings.TrimSpace(line), "[lazyxcode]"):
+			lines[i] = colorPrefix(line, "[lazyxcode]", ansiCyan)
 			severity = diagnosticNone
 		case strings.TrimSpace(line) == "":
 			severity = diagnosticNone
@@ -321,7 +321,7 @@ func conciseBuildOutputAt(raw string, now time.Time) string {
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "[lazy-xcode] App console" {
+		if trimmed == "[lazyxcode] App console" {
 			inAppConsole = true
 			continue
 		}
@@ -353,7 +353,7 @@ func conciseBuildOutputAt(raw string, now time.Time) string {
 			}
 			continue
 		}
-		if strings.HasPrefix(trimmed, "[lazy-xcode]") {
+		if strings.HasPrefix(trimmed, "[lazyxcode]") {
 			if strings.Contains(trimmed, " Building ") {
 				intro = trimmed
 			} else if strings.Contains(trimmed, "Build succeeded;") || strings.Contains(trimmed, "Installing app") || strings.Contains(trimmed, "Launching ") {
@@ -466,7 +466,7 @@ func conciseTestOutputAt(raw string, now time.Time, phase model.Phase) string {
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[lazy-xcode]") && strings.Contains(trimmed, " Testing ") {
+		if strings.HasPrefix(trimmed, "[lazyxcode]") && strings.Contains(trimmed, " Testing ") {
 			intro = trimmed
 			continue
 		}
@@ -687,7 +687,7 @@ type progressEvent struct {
 
 func parseProgressMarker(line string) (progressEvent, bool) {
 	parts := strings.SplitN(line, " ", 5)
-	if len(parts) != 5 || parts[0] != "[lazy-xcode:step]" {
+	if len(parts) != 5 || parts[0] != "[lazyxcode:step]" {
 		return progressEvent{}, false
 	}
 	value, err := strconv.ParseInt(parts[2], 10, 64)
