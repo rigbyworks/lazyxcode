@@ -1,30 +1,105 @@
 # lazyxcode
 
-`lazyxcode` is a keyboard-first terminal interface for building, running, and testing Xcode schemes without keeping Xcode open. It discovers the current directory's Xcode containers, shared schemes, test targets, and scheme-compatible simulators, connected devices, and the current Mac, then streams each activity into its own retained log. An optional read-only Cloud mode browses recent Xcode Cloud builds for the same project.
+A keyboard-first terminal UI for building, running, and testing Xcode projects.
+
+Keep your editor open and run your app from the terminal. `lazyxcode` finds your Xcode projects, schemes, and compatible destinations, then puts build controls, activity history, and live output in three panes. It uses your installed Xcode tools, so you can build and test without keeping the Xcode app open.
+
+[Installation](#installation) · [Getting started](#getting-started) · [Keyboard shortcuts](#navigation) · [Contributing](#contributing) · [MIT license](LICENSE)
+
+## Features
+
+- Build and run on simulators, connected Apple devices, or your Mac.
+- Follow build progress, warnings, errors, and app console output. Switch to the full raw log when you need it.
+- Run XCTest and Swift Testing suites or individual tests, inspect failures and attachments, and rerun failed tests.
+- Browse code coverage and compare it with earlier runs.
+- Keep activity history, logs, and test results across sessions, with separate incremental build caches for each project, scheme, and destination.
+- Browse Xcode Cloud builds, diagnostics, test results, and artifacts in an optional read-only mode.
+
+## Contents
+
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Getting started](#getting-started)
+- [Navigation](#navigation)
+- [Builds and output](#builds-and-output)
+- [Test results and coverage](#test-results-and-coverage)
+- [Xcode Cloud](#xcode-cloud)
+- [State and cache](#state-and-cache)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Upgrading from lazy-xcode](#upgrading-from-lazy-xcode)
+- [License](#license)
 
 ## Requirements
 
-- Apple Silicon Mac running macOS 15 or newer
-- Full Xcode 16.3 or newer, selected through `xcode-select` or `DEVELOPER_DIR`
-- Go 1.25 or newer when building from source
+- An Apple Silicon Mac running macOS 15 or newer.
+- Full Xcode 16.3 or newer, with first-launch setup completed. The standalone Command Line Tools are not enough.
+- An Xcode project or workspace with a shared scheme and a compatible destination. Install the simulator runtime you want to use through Xcode.
+- Go 1.25 or newer to build from source.
 
-## Install
+`lazyxcode` uses the Xcode installation selected by `xcode-select` or `DEVELOPER_DIR`. Check your selection with:
+
+```sh
+xcode-select -p
+xcodebuild -version
+```
+
+## Installation
+
+### Build from source
+
+Install [Go](https://go.dev/doc/install), then clone and build the project:
+
+```sh
+git clone https://github.com/rigbyworks/lazyxcode.git
+cd lazyxcode
+make install
+```
+
+This installs `lazyxcode` into `~/.local/bin`. Add that directory to your shell's `PATH` if it is not already there:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Add the same line to your shell configuration, such as `~/.zshrc`, to keep it for new terminals. To use another install directory, run `make install BINDIR=/your/bin/directory`.
+
+Check the installed command:
+
+```sh
+lazyxcode --version
+lazyxcode --help
+```
+
+A checkout build reports `lazyxcode dev`. To update it, pull the latest changes in your checkout and run `make install` again.
+
+### Homebrew
+
+Install the latest release from the Rigby Works tap:
 
 ```sh
 brew install rigbyworks/tap/lazyxcode
 ```
 
-Upgrade with `brew update && brew upgrade lazyxcode`. Uninstall with `brew uninstall lazyxcode`; saved preferences, history, and caches remain on disk.
+Then update with `brew update && brew upgrade lazyxcode`, or remove it with `brew uninstall lazyxcode`. Uninstalling leaves saved preferences, history, and caches on disk. Check [releases](https://github.com/rigbyworks/lazyxcode/releases) for availability and release notes.
 
-To build from a checkout, run `make install`. Go users can also install a released version with `go install github.com/rigbyworks/lazyxcode@v0.1.0`. Run `lazyxcode --version` to identify the installed release and `lazyxcode --help` for usage.
+## Getting started
 
-### Renaming from lazy-xcode
+Run `lazyxcode` from the directory that directly contains your `.xcworkspace` or `.xcodeproj`:
 
-The command is now `lazyxcode`. Update aliases and scripts, and remove an obsolete `lazy-xcode` executable manually after confirming its location with `command -v lazy-xcode`.
+```sh
+cd /path/to/your/app
+lazyxcode
+```
 
-Cloud environment variables now start with `LAZYXCODE_`, replacing `LAZY_XCODE_`. Existing state and cache directories named `lazy-xcode` are left untouched. The renamed tool starts with fresh preferences and history under `lazyxcode`; no automatic migration or old-name fallback is performed.
+If more than one project or workspace is present, choose one in the startup picker. Workspaces appear first, and `lazyxcode` remembers your selection.
 
-Run `lazyxcode` from a directory containing a top-level `.xcworkspace` or `.xcodeproj`. When more than one is present, workspaces are listed first in a startup picker and the selection is remembered.
+1. Press `1` to focus the Build pane. Use the arrow keys or `j` and `k` to select the scheme or target row, then press `Enter` to choose a value.
+2. Press `r` to build and run, or `b` to build without launching. Build progress appears in Output. A successful run launches the app on your selected destination.
+3. Press `t` to choose which tests to run. Select a completed test activity and press `Enter` to browse results or coverage.
+4. Press `?` for keyboard help, or `:` to search available actions. Press `q` to quit.
+
+Local builds do not require an App Store Connect API key. Set up [Xcode Cloud credentials](#credentials) only if you want to browse cloud builds.
 
 ## Navigation
 
@@ -58,6 +133,8 @@ The footer shows a few actions for the focused pane. Press `:` to search the ful
 Local build targets refresh in the background every 15 seconds and whenever you open the target picker. Newly available devices appear without restarting, including while the picker is open or a build is running. Refreshes preserve your selection and search text; a failed discovery keeps the last known list until a later refresh succeeds.
 
 Cloud configuration stays compact: Product, Workflow, connection status, and refresh timing. Select the connection row or press `i` to inspect warnings, errors, and downloads. Full connection warnings also appear in concise Output, including when there are no build runs.
+
+## Builds and output
 
 Distinct scheme/target pairs can build or test concurrently. Successful simulator builds boot the selected simulator, open the device window, install the generated app, and launch it. The window uses Device Hub from the selected Xcode, respecting `DEVELOPER_DIR` or `xcode-select`. If that Xcode does not include Device Hub, it uses the same Xcode's Simulator.app. Physical-device builds deploy and launch through `devicectl`; Mac builds launch the generated app directly. Simulator and physical-device launches remain attached and stream the app's standard output and error, including `print` output, until the app exits. Press `x` to stop the running app. Starting another build for the same scheme and target stops the attached app first; other duplicate activities are rejected because they share an incremental DerivedData cache.
 
@@ -131,14 +208,73 @@ Local test bundles and exported attachments live under the project state directo
 
 The cache action deletes only DerivedData managed by `lazyxcode`; it does not delete build history, logs, retained test results, downloaded cloud artifacts, project files, or Xcode's global DerivedData. The preferences file also remembers the selected Xcode Cloud product and workflow per container; files written by earlier versions load unchanged.
 
-## Development
+## Troubleshooting
+
+### Xcode is missing or the wrong version is selected
+
+Open Xcode once to finish setup. If `xcode-select -p` points to the standalone Command Line Tools or another Xcode installation, select the full Xcode installation for your terminal session:
 
 ```sh
-make test
-make check
-make build
+export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+xcodebuild -version
+lazyxcode
 ```
 
-Tests use fake command runners, headless gocui instances, and `httptest` servers for the App Store Connect API, so they do not require an available simulator or network access.
+Adjust the path if you installed Xcode elsewhere.
 
-Release maintainers: see [RELEASING.md](RELEASING.md).
+### No project, scheme, or destination appears
+
+- Start in the directory that directly contains the `.xcworkspace` or `.xcodeproj`. Discovery does not search subdirectories.
+- Check that the scheme is shared in Xcode and belongs to the selected project or workspace. Press `R` to reload schemes and targets.
+- Check that the selected scheme supports your destination and that the required simulator runtime is installed. For a physical device, check its connection and availability in Xcode.
+
+### The shell cannot find lazyxcode
+
+For a source install, check that `~/.local/bin` is in your `PATH`, or add the custom `BINDIR` you used during installation. Run `command -v lazyxcode` to see which executable your shell finds.
+
+## Contributing
+
+Bug reports, documentation improvements, and pull requests are welcome. [Open an issue](https://github.com/rigbyworks/lazyxcode/issues) to report a problem or discuss a feature. For larger changes, describe the proposal in an issue before starting implementation.
+
+For bug reports, include:
+
+- Your `lazyxcode --version`, macOS version, and `xcodebuild -version` output.
+- The steps to reproduce the problem, what you expected, and what happened.
+- Whether the problem affects a simulator, physical device, Mac, or Xcode Cloud.
+- Relevant output or a screenshot. Remove credentials and private project details before posting.
+
+### Develop locally
+
+Fork the repository and clone your fork, or use the checkout from the [source installation](#build-from-source). The project is written in Go. From the repository root, run:
+
+```sh
+make build
+./lazyxcode --help
+make test
+make check
+```
+
+`make build` writes the executable to the repository root. To try your changes against an Xcode project, run that executable from the app's directory:
+
+```sh
+cd /path/to/your/app
+/path/to/lazyxcode/lazyxcode
+```
+
+`make test` runs the Go tests. `make check` checks formatting, runs `go vet`, runs tests with the race detector, and checks that the project builds. Format changed Go files with `gofmt` before running it.
+
+Tests use fake command runners, headless gocui instances, and local HTTP test servers for the App Store Connect API. The default suite does not need an available simulator or external network access after Go dependencies are downloaded. For the opt-in integration test that builds and runs a real simulator app, see [RELEASING.md](RELEASING.md#run-the-disposable-integration-check).
+
+Keep pull requests focused, explain the behavior change, and include how you tested it. Add or update tests when changing behavior. For UI changes, include a screenshot or recording when it helps show the result.
+
+Release maintainers can find the release and Homebrew workflow in [RELEASING.md](RELEASING.md).
+
+## Upgrading from lazy-xcode
+
+The command is now `lazyxcode`. Update aliases and scripts, and remove an obsolete `lazy-xcode` executable manually after confirming its location with `command -v lazy-xcode`.
+
+Cloud environment variables now start with `LAZYXCODE_`, replacing `LAZY_XCODE_`. Existing state and cache directories named `lazy-xcode` are left untouched. The renamed tool starts with fresh preferences and history under `lazyxcode`; no automatic migration or old-name fallback is performed.
+
+## License
+
+[MIT](LICENSE), copyright Rigby Works.
