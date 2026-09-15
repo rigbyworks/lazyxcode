@@ -1,3 +1,6 @@
-/lazy-xcode
+/lazyxcode
 *.test
 .DS_Store
+
+# Old local build artifact; never include it in source releases.
+/lazy-xcode

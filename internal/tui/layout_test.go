@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/jesseduffield/gocui"
-	buildmanager "github.com/mwahlig/lazy-xcode/internal/build"
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	buildmanager "github.com/rigbyworks/lazyxcode/internal/build"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 func TestHeadlessLayoutMatchesThreePanePlan(t *testing.T) {
@@ -21,7 +21,7 @@ func TestHeadlessLayoutMatchesThreePanePlan(t *testing.T) {
 		gui: g, focus: "build", container: model.Container{Name: "App.xcworkspace"},
 		schemes: []string{"App"}, sims: []model.Simulator{{ID: "PHONE", Name: "iPhone 17 Pro", OS: "iOS 26.0"}},
 		records: []model.BuildRecord{{ID: "123-001", Scheme: "App", Simulator: model.Simulator{Name: "iPhone 17 Pro"}, Phase: model.PhaseBuilding, StartedAt: time.Now()}},
-		outputs: map[string]string{"123-001": "[lazy-xcode] Building App for iPhone 17 Pro\nCompileSwift App.swift\n"}, outputFollow: true,
+		outputs: map[string]string{"123-001": "[lazyxcode] Building App for iPhone 17 Pro\nCompileSwift App.swift\n"}, outputFollow: true,
 	}
 	if err := a.layout(g); err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestHeadlessLayoutMatchesThreePanePlan(t *testing.T) {
 		t.Fatalf("build pane = %q", buildView.Buffer())
 	}
 	output, _ := g.View("output")
-	if !strings.Contains(output.Buffer(), "[lazy-xcode] Building") || strings.Contains(output.Buffer(), "CompileSwift") || !strings.Contains(output.Title, "FOLLOW") {
+	if !strings.Contains(output.Buffer(), "[lazyxcode] Building") || strings.Contains(output.Buffer(), "CompileSwift") || !strings.Contains(output.Title, "FOLLOW") {
 		t.Fatalf("output pane/title = %q / %q", output.Buffer(), output.Title)
 	}
 }
@@ -393,19 +393,19 @@ func TestTestActivityRowsUseTestSpecificStatuses(t *testing.T) {
 }
 
 func TestConciseBuildOutputSummarizesStepsAndDeduplicatesDiagnostics(t *testing.T) {
-	raw := `[lazy-xcode] Building App for iPhone 17 Pro
+	raw := `[lazyxcode] Building App for iPhone 17 Pro
 Command line invocation:
     /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild
-[lazy-xcode:step] start 100000 1 Plan build
-[lazy-xcode:step] done 1200 1 Plan build
-[lazy-xcode:step] start 101200 4 Compile sources
+[lazyxcode:step] start 100000 1 Plan build
+[lazyxcode:step] done 1200 1 Plan build
+[lazyxcode:step] start 101200 4 Compile sources
 /tmp/App.swift:10:5: warning: value was never used
 /tmp/App.swift:10:5: warning: value was never used
 2026-08-17 tool[123] warning: metadata was skipped
 ld: library 'MissingKit' not found
-[lazy-xcode:step] done 3800 4 Compile sources
+[lazyxcode:step] done 3800 4 Compile sources
 ** BUILD SUCCEEDED **
-[lazy-xcode] Installing app`
+[lazyxcode] Installing app`
 	output := conciseBuildOutputAt(raw, time.UnixMilli(105000))
 	for _, expected := range []string{
 		"BUILD STEPS",
@@ -436,7 +436,7 @@ ld: library 'MissingKit' not found
 }
 
 func TestConciseBuildOutputUpdatesActiveStepElapsedTime(t *testing.T) {
-	raw := "[lazy-xcode:step] start 100000 4 Compile sources\n"
+	raw := "[lazyxcode:step] start 100000 4 Compile sources\n"
 	output := conciseBuildOutputAt(raw, time.UnixMilli(104250))
 	for _, expected := range []string{"● Compile sources", "4.2s"} {
 		if !strings.Contains(output, expected) {
@@ -446,11 +446,11 @@ func TestConciseBuildOutputUpdatesActiveStepElapsedTime(t *testing.T) {
 }
 
 func TestConciseBuildOutputIncludesAppConsoleVerbatim(t *testing.T) {
-	raw := `[lazy-xcode] Building App for iPhone 17 Pro
+	raw := `[lazyxcode] Building App for iPhone 17 Pro
 ** BUILD SUCCEEDED **
-[lazy-xcode] Installing app
-[lazy-xcode] Launching com.example.app
-[lazy-xcode] App console
+[lazyxcode] Installing app
+[lazyxcode] Launching com.example.app
+[lazyxcode] App console
 User signed in
 warning: this is app output, not a build diagnostic`
 	output := conciseBuildOutputAt(raw, time.Now())
@@ -472,9 +472,9 @@ func TestRunningBuildUsesRunStatus(t *testing.T) {
 }
 
 func TestConciseXCTestOutputShowsSuiteResultsAndFailures(t *testing.T) {
-	raw := `[lazy-xcode] Testing App on iPhone 17 Pro (26.0) — Unit Tests
-[lazy-xcode:step] start 100000 4 Compile sources
-[lazy-xcode:step] done 2400 4 Compile sources
+	raw := `[lazyxcode] Testing App on iPhone 17 Pro (26.0) — Unit Tests
+[lazyxcode:step] start 100000 4 Compile sources
+[lazyxcode:step] done 2400 4 Compile sources
 Test Suite 'Selected tests' started at 2026-08-17 10:00:00.000.
 Test Suite 'AppTests.xctest' started at 2026-08-17 10:00:00.000.
 Test Suite 'LoginTests' started at 2026-08-17 10:00:00.000.
@@ -528,7 +528,7 @@ Test Case '-[AppTests.LoginTests testValidLogin]' passed (0.200 seconds).
 }
 
 func TestConciseSwiftTestingOutputShowsSuiteResult(t *testing.T) {
-	raw := `[lazy-xcode] Testing App on iPhone 17 Pro (26.0) — Unit Tests
+	raw := `[lazyxcode] Testing App on iPhone 17 Pro (26.0) — Unit Tests
 ◇ Suite SearchResultTests started.
 ◇ Test lookupCoverArt started.
 ✔ Test lookupCoverArt passed after 0.001 seconds.
@@ -572,9 +572,9 @@ let unused = value
 }
 
 func TestBuildOutputFormatsSuccessAndLifecycleMessages(t *testing.T) {
-	plain := "[lazy-xcode] Installing app\n  warning: App.swift:10:5 — value was never used\n** BUILD SUCCEEDED **"
+	plain := "[lazyxcode] Installing app\n  warning: App.swift:10:5 — value was never used\n** BUILD SUCCEEDED **"
 	formatted := formatBuildOutput(plain)
-	if !strings.Contains(formatted, ansiCyan+"[lazy-xcode]"+ansiReset) {
+	if !strings.Contains(formatted, ansiCyan+"[lazyxcode]"+ansiReset) {
 		t.Fatalf("lifecycle prefix not formatted: %q", formatted)
 	}
 	if !strings.Contains(formatted, ansiBoldGreen+"** BUILD SUCCEEDED **"+ansiReset) {
@@ -592,7 +592,7 @@ func TestOutputVerbosityAppearsInPanelTitle(t *testing.T) {
 	}
 	defer g.Close()
 	a := &App{
-		gui: g, focus: "output", outputs: map[string]string{"build": "[lazy-xcode] Building App\nCompileSwift App.swift\n"},
+		gui: g, focus: "output", outputs: map[string]string{"build": "[lazyxcode] Building App\nCompileSwift App.swift\n"},
 		records: []model.BuildRecord{{ID: "build", Phase: model.PhaseBuilding, StartedAt: time.Now()}}, outputFollow: true,
 	}
 	if err := a.layout(g); err != nil {

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jesseduffield/gocui"
-	"github.com/mwahlig/lazy-xcode/internal/xcodecloud"
+	"github.com/rigbyworks/lazyxcode/internal/xcodecloud"
 )
 
 func (a *App) renderCloud(buildView, buildsView, outputView *gocui.View) error {
@@ -222,7 +222,7 @@ func cloudSetupGuidance(err error) string {
 		"read-only Xcode Cloud access. Download the .p8 file once and keep it",
 		"readable only by your user (chmod 600).",
 		"",
-		"Then export these variables before starting lazy-xcode:",
+		"Then export these variables before starting lazyxcode:",
 		"",
 		"  export "+xcodecloud.EnvIssuerID+"=<issuer id>",
 		"  export "+xcodecloud.EnvKeyID+"=<key id>",

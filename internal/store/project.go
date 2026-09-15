@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 const historyLimit = 100
@@ -49,24 +49,24 @@ func NewProject(container model.Container) (*Project, error) {
 
 func stateRoot() (string, error) {
 	if root := os.Getenv("XDG_STATE_HOME"); root != "" {
-		return filepath.Join(root, "lazy-xcode"), nil
+		return filepath.Join(root, "lazyxcode"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".local", "state", "lazy-xcode"), nil
+	return filepath.Join(home, ".local", "state", "lazyxcode"), nil
 }
 
 func cacheRoot() (string, error) {
 	if root := os.Getenv("XDG_CACHE_HOME"); root != "" {
-		return filepath.Join(root, "lazy-xcode"), nil
+		return filepath.Join(root, "lazyxcode"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".cache", "lazy-xcode"), nil
+	return filepath.Join(home, ".cache", "lazyxcode"), nil
 }
 
 func shortHash(value string) string {
@@ -176,7 +176,7 @@ func (p *Project) Load() ([]model.BuildRecord, error) {
 		if history.Builds[i].Phase.Active() {
 			now := time.Now()
 			history.Builds[i].Phase = model.PhaseCancelled
-			history.Builds[i].Error = "lazy-xcode exited before the activity completed"
+			history.Builds[i].Error = "lazyxcode exited before the activity completed"
 			history.Builds[i].FinishedAt = &now
 			changed = true
 		}

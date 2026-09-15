@@ -117,7 +117,7 @@ func NewClient(tokens TokenSource, options ...Option) *Client {
 		http:        &http.Client{Timeout: defaultHTTPTimeout},
 		tokens:      tokens,
 		base:        base,
-		userAgent:   "lazy-xcode",
+		userAgent:   "lazyxcode",
 		attempts:    defaultAttempts,
 		sleep:       sleepContext,
 		jitter:      rand.Float64,

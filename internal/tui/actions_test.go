@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mwahlig/lazy-xcode/internal/xcodecloud"
+	"github.com/rigbyworks/lazyxcode/internal/xcodecloud"
 )
 
 func TestContextualFooterFitsWithoutClippingActions(t *testing.T) {
@@ -38,7 +38,7 @@ func TestWarningsStayReadableOutsideConfigurationPanel(t *testing.T) {
 			a := h.app
 			h.press(a.toggleMode)
 			h.drain()
-			warning := "private key /Users/example/.config/lazy-xcode/keys/a-very-long-key-file-name.p8 is readable by other users; use chmod 600"
+			warning := "private key /Users/example/.config/lazyxcode/keys/a-very-long-key-file-name.p8 is readable by other users; use chmod 600"
 			a.cloud.warnings = []string{warning}
 			a.cloud.runs = []xcodecloud.BuildRun{}
 			h.layout()

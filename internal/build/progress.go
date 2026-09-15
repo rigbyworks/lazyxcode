@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const progressMarker = "[lazy-xcode:step]"
+const progressMarker = "[lazyxcode:step]"
 
 type buildStepDefinition struct {
 	name     string

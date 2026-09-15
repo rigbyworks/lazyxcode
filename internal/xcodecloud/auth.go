@@ -16,9 +16,9 @@ import (
 
 // Environment variables that configure App Store Connect team API keys.
 const (
-	EnvIssuerID       = "LAZY_XCODE_ASC_ISSUER_ID"
-	EnvKeyID          = "LAZY_XCODE_ASC_KEY_ID"
-	EnvPrivateKeyPath = "LAZY_XCODE_ASC_PRIVATE_KEY_PATH"
+	EnvIssuerID       = "LAZYXCODE_ASC_ISSUER_ID"
+	EnvKeyID          = "LAZYXCODE_ASC_KEY_ID"
+	EnvPrivateKeyPath = "LAZYXCODE_ASC_PRIVATE_KEY_PATH"
 )
 
 const (

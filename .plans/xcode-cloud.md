@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a read-only Xcode Cloud mode to `lazy-xcode` that lets a developer browse recent cloud builds without leaving the existing three-pane workflow.
+Add a read-only Xcode Cloud mode to `lazyxcode` that lets a developer browse recent cloud builds without leaving the existing three-pane workflow.
 
 The first release will support:
 
@@ -20,7 +20,7 @@ Starting or cancelling cloud builds, editing workflows, and managing App Store C
 Use the screenshot's Local/Cloud tab concept rather than adding a fourth pane. The selected mode controls all three existing panes:
 
 ```text
- lazy-xcode | Fortyfive.xcodeproj
+ lazyxcode | Fortyfive.xcodeproj
 ╭─ [Local]  Cloud [1] ─────────╮╭─ Output [3] - CONCISE - #245 ─────────────╮
 │  Container  Fortyfive...     ││ XCODE CLOUD BUILD                         │
 │> Scheme     Fortyfive   [>]  ││ Workflow   Pull Request                   │
@@ -148,9 +148,9 @@ All collection handling must follow the API's returned pagination links. Do not 
 
 Support App Store Connect team API keys in the first release:
 
-- `LAZY_XCODE_ASC_ISSUER_ID`
-- `LAZY_XCODE_ASC_KEY_ID`
-- `LAZY_XCODE_ASC_PRIVATE_KEY_PATH`
+- `LAZYXCODE_ASC_ISSUER_ID`
+- `LAZYXCODE_ASC_KEY_ID`
+- `LAZYXCODE_ASC_PRIVATE_KEY_PATH`
 
 The `.p8` private key remains in the user-controlled file and is read only when creating the token source. Do not copy it into preferences, logs, errors, artifacts, or project state. Warn when the file is group/world readable.
 
@@ -282,7 +282,7 @@ Cache raw content per run so repeated toggles do not redownload it during the pr
 `a` opens the existing overlay UI with artifacts grouped/labeled by action. Enter downloads the selected artifact to:
 
 ```text
-$XDG_CACHE_HOME/lazy-xcode/projects/<project-hash>/cloud/<run-id>/artifacts/<safe-filename>
+$XDG_CACHE_HOME/lazyxcode/projects/<project-hash>/cloud/<run-id>/artifacts/<safe-filename>
 ```
 
 Fall back to `~/.cache` consistently with current cache behavior. Stream downloads to a temporary file, verify the received byte count when Apple provides a size, and rename atomically. Sanitize filenames and prevent path traversal. Existing files with matching metadata can be reused; incomplete temporary files must be removed after cancellation or failure.

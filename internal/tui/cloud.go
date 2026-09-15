@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/jesseduffield/gocui"
-	"github.com/mwahlig/lazy-xcode/internal/xcodecloud"
+	"github.com/rigbyworks/lazyxcode/internal/xcodecloud"
 )
 
 type appMode int

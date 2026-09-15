@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mwahlig/lazy-xcode/internal/xcode"
+	"github.com/rigbyworks/lazyxcode/internal/xcode"
 )
 
 type targetRunner struct {

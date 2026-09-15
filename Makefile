@@ -1,10 +1,11 @@
 .PHONY: build install test check clean
 
-BINARY := lazy-xcode
+BINARY := lazyxcode
+VERSION ?= dev
 BINDIR ?= $(HOME)/.local/bin
 
 build:
-	go build -trimpath -o $(BINARY) .
+	go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BINARY) .
 
 install: build
 	install -d "$(BINDIR)"

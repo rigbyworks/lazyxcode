@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 func simulatorFrontendFixture(t *testing.T, hub bool) (string, string) {

@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/jesseduffield/gocui"
-	buildmanager "github.com/mwahlig/lazy-xcode/internal/build"
-	"github.com/mwahlig/lazy-xcode/internal/model"
-	"github.com/mwahlig/lazy-xcode/internal/store"
-	"github.com/mwahlig/lazy-xcode/internal/xcode"
-	"github.com/mwahlig/lazy-xcode/internal/xcodecloud"
+	buildmanager "github.com/rigbyworks/lazyxcode/internal/build"
+	"github.com/rigbyworks/lazyxcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/store"
+	"github.com/rigbyworks/lazyxcode/internal/xcode"
+	"github.com/rigbyworks/lazyxcode/internal/xcodecloud"
 )
 
 type overlayItem struct {

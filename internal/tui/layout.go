@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/jesseduffield/gocui"
-	"github.com/mwahlig/lazy-xcode/internal/model"
+	"github.com/rigbyworks/lazyxcode/internal/model"
 )
 
 var roundedFrame = []rune{'─', '│', '╭', '╮', '╰', '╯'}
@@ -18,7 +18,7 @@ func (a *App) layout(g *gocui.Gui) error {
 		if err != nil && !gocui.IsUnknownView(err) {
 			return err
 		}
-		v.Visible, v.Title = true, " lazy-xcode "
+		v.Visible, v.Title = true, " lazyxcode "
 		v.Clear()
 		fmt.Fprintf(v, "Terminal is too small.\n\nCurrent: %dx%d\nRequired: 44x10", maxX, maxY)
 		return nil
@@ -142,7 +142,7 @@ func (a *App) ensureHeader(g *gocui.Gui, maxX int) error {
 	if a.mode == modeCloud {
 		name += " | Xcode Cloud"
 	}
-	title := " lazy-xcode | " + name
+	title := " lazyxcode | " + name
 	if maxX >= 74 && a.status != "" {
 		title = truncate(title, maxX/2)
 		status := truncate(strings.Join(strings.Fields(a.status), " "), maxX-len([]rune(title))-8) + " [i]"
