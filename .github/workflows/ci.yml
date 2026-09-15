@@ -36,7 +36,11 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Install the runtime matching Xcode 16.3
-        run: xcodebuild -downloadPlatform iOS -buildVersion 18.4
+        run: |
+          sudo xcode-select --switch "$DEVELOPER_DIR"
+          # Warm up CoreSimulator before downloading (runner-images#12862).
+          xcrun simctl list > /dev/null
+          xcodebuild -downloadPlatform iOS -buildVersion 18.4
       - run: go test ./internal/xcode -run '^TestReleaseSmoke$' -v -count=1 -timeout 15m
   package:
     runs-on: macos-15
