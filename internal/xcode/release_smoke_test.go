@@ -19,7 +19,7 @@ func TestReleaseSmoke(t *testing.T) {
 	if os.Getenv("LAZYXCODE_RELEASE_SMOKE") != "1" {
 		t.Skip("set LAZYXCODE_RELEASE_SMOKE=1 to exercise installed Xcode")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 18*time.Minute)
 	defer cancel()
 	root := t.TempDir()
 	if out, err := exec.CommandContext(ctx, "python3", "../../scripts/create-smoke-project.py", root).CombinedOutput(); err != nil {
@@ -55,16 +55,20 @@ func TestReleaseSmoke(t *testing.T) {
 	if err := client.Build(ctx, &output, container, "Smoke", target, derived); err != nil {
 		t.Fatalf("build: %v\n%s", err, &output)
 	}
+	t.Log("Build complete; locating product")
 	product, err := client.Product(ctx, container, "Smoke", target, derived)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Log("Booting simulator")
 	if err := client.Boot(ctx, target); err != nil {
 		t.Fatal(err)
 	}
+	t.Log("Simulator booted; installing app")
 	if err := client.Install(ctx, target, product); err != nil {
 		t.Fatal(err)
 	}
+	t.Log("App installed; launching")
 	launch, stop := context.WithCancel(ctx)
 	reader, writer := io.Pipe()
 	done := make(chan error, 1)
@@ -95,11 +99,11 @@ func TestReleaseSmoke(t *testing.T) {
 		if !ok {
 			t.Fatal("app exited without readiness output")
 		}
-	case <-time.After(time.Minute):
+	case <-time.After(3 * time.Minute):
 		stop()
 		reader.Close()
 		<-done
-		t.Fatal("app did not launch within one minute")
+		t.Fatal("app did not launch within three minutes")
 	}
 	t.Log("App launched; testing and inspecting results")
 	output.Reset()

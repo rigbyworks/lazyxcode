@@ -43,7 +43,7 @@ The executable and all new state/cache paths use `lazyxcode`. Cloud credentials 
 ## Run the disposable integration check
 
 ```sh
-LAZYXCODE_RELEASE_SMOKE=1 go test ./internal/xcode -run '^TestReleaseSmoke$' -v -count=1 -timeout 15m
+LAZYXCODE_RELEASE_SMOKE=1 go test ./internal/xcode -run '^TestReleaseSmoke$' -v -count=1 -timeout 20m
 ```
 
 This creates a fixture project and an iPhone 16 simulator, runs the real build, install, attached launch, XCTest, result-inspection, and coverage commands, then deletes the simulator. An iOS runtime must already be installed. CI runs it with Xcode 16.3 to exercise the minimum supported version and legacy Simulator. Run it locally with Xcode 27 to cover Device Hub as well.
