@@ -75,7 +75,7 @@ A checkout build reports `lazyxcode dev`. To update it, pull the latest changes 
 
 ### Homebrew
 
-Homebrew installation is planned for the first release. Once the release and tap formula are published, install with:
+Install the latest release from the Rigby Works tap:
 
 ```sh
 brew install rigbyworks/tap/lazyxcode
