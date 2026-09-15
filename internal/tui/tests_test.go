@@ -81,7 +81,7 @@ func testResultHarness(t *testing.T, width, height int) (*cloudHarness, *testToo
 		t.Fatal(err)
 	}
 	h.app.records = []model.BuildRecord{{ID: "123-001", Container: h.app.container, Scheme: "Original", Simulator: model.Simulator{ID: "ORIGINAL-MAC", Name: "My Mac", Platform: "macOS"}, Operation: model.OperationTest, Phase: model.PhaseTestFailed, ResultBundlePath: bundle, Coverage: true, TestScope: "All Tests", StartedAt: time.Now()}}
-	h.app.outputs["123-001"] = "original test transcript\n"
+	h.app.outputs["123-001"] = logWithText("original test transcript\n")
 	return h, runner
 }
 

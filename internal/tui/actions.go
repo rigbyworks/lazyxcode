@@ -34,6 +34,8 @@ func (a *App) availableActions() []uiAction {
 			{"t", "Run tests / coverage settings", a.openTestPicker},
 			{"Enter", "Inspect selected test results", a.openTestActivity},
 			{"v", "Toggle raw logs", a.toggleOutputVerbosity},
+			{"[", "Older log page", a.olderOutputPage},
+			{"]", "Newer log page / live output", a.newerOutputPage},
 			{"c", "Clear managed DerivedData", a.confirmClearCache},
 			{"R", "Reload schemes and targets", a.reload},
 			{"m", "Switch to Cloud", a.toggleMode},
@@ -142,6 +144,9 @@ func (a *App) showContextDetails(*gocui.Gui, *gocui.View) error {
 			}
 		}
 	} else {
+		if len(a.records) > 0 && a.buildIndex < len(a.records) {
+			fmt.Fprintf(&b, "\nLog file: %s\n", a.records[a.buildIndex].LogPath)
+		}
 		if a.scheme >= 0 && a.scheme < len(a.schemes) {
 			fmt.Fprintf(&b, "\nScheme: %s\n", a.schemes[a.scheme])
 		}

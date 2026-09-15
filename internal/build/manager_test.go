@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/rigbyworks/lazyxcode/internal/model"
@@ -411,5 +413,37 @@ func TestManagerRetainsResultBundleForFailedTests(t *testing.T) {
 	}
 	if _, err := os.Stat(record.ResultBundlePath); err != nil {
 		t.Fatal("failed test bundle lost", err)
+	}
+}
+
+func TestEventCallbacksAreSerializedInSequence(t *testing.T) {
+	var active atomic.Int32
+	var overlapped atomic.Bool
+	var mu sync.Mutex
+	var sequences []uint64
+	manager := &Manager{onEvent: func(event Event) {
+		if active.Add(1) != 1 {
+			overlapped.Store(true)
+		}
+		runtime.Gosched()
+		mu.Lock()
+		sequences = append(sequences, event.Sequence)
+		mu.Unlock()
+		active.Add(-1)
+	}}
+	manager.events.Store("run", &atomic.Uint64{})
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Add(1)
+		go func() { defer wg.Done(); manager.emit(Event{Record: model.BuildRecord{ID: "run"}}) }()
+	}
+	wg.Wait()
+	if overlapped.Load() {
+		t.Fatal("event callbacks overlapped")
+	}
+	for i, sequence := range sequences {
+		if sequence != uint64(i+1) {
+			t.Fatalf("callback %d got sequence %d", i, sequence)
+		}
 	}
 }

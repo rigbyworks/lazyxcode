@@ -1,11 +1,13 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -141,20 +143,75 @@ func (p *Project) NewLog(id string) (*os.File, string, error) {
 	return file, path, err
 }
 
-func (p *Project) ReadLog(record model.BuildRecord) ([]byte, error) {
-	if record.LogPath == "" {
-		return nil, nil
-	}
+func (p *Project) openLog(record model.BuildRecord) (*os.File, error) {
 	clean := filepath.Clean(record.LogPath)
 	logs := filepath.Join(p.stateDir, "logs") + string(os.PathSeparator)
 	if !strings.HasPrefix(clean, logs) {
 		return nil, errors.New("build log is outside the project state directory")
 	}
-	data, err := os.ReadFile(clean)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+	return os.Open(clean)
+}
+
+// ReadLogPage reads at most maxBytes before end. A negative end selects the
+// current end of the file. Returned offsets allow paging without retaining pages.
+func (p *Project) ReadLogPage(record model.BuildRecord, end int64, maxBytes int) ([]byte, int64, int64, error) {
+	file, err := p.openLog(record)
+	if err != nil {
+		return nil, 0, 0, err
 	}
-	return data, err
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if end < 0 || end > info.Size() {
+		end = info.Size()
+	}
+	start := max(int64(0), end-int64(max(0, maxBytes)))
+	data := make([]byte, int(end-start))
+	n, err := file.ReadAt(data, start)
+	if err == io.EOF {
+		err = nil
+	}
+	return data[:n], start, start + int64(n), err
+}
+
+// CopyLog reads a persisted transcript with bounded memory. Cancellation lets
+// the UI stop a historical load immediately when selection changes.
+func (p *Project) CopyLog(ctx context.Context, record model.BuildRecord, destination io.Writer) error {
+	if record.LogPath == "" {
+		return nil
+	}
+	file, err := p.openLog(record)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	buffer := make([]byte, 32<<10)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, err := file.Read(buffer)
+		if n > 0 {
+			written, writeErr := destination.Write(buffer[:n])
+			if writeErr != nil {
+				return writeErr
+			}
+			if written != n {
+				return io.ErrShortWrite
+			}
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 func (p *Project) Load() ([]model.BuildRecord, error) {

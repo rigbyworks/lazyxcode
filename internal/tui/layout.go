@@ -96,6 +96,9 @@ func (a *App) outputTitle() string {
 		}
 		return title
 	}
+	if a.selectedOutputPage() != nil {
+		return title + " - RAW PAGE [ / ]  [G] Live"
+	}
 	if a.verboseOutput {
 		title += " - RAW"
 	} else {

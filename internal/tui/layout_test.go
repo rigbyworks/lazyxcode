@@ -21,7 +21,7 @@ func TestHeadlessLayoutMatchesThreePanePlan(t *testing.T) {
 		gui: g, focus: "build", container: model.Container{Name: "App.xcworkspace"},
 		schemes: []string{"App"}, sims: []model.Simulator{{ID: "PHONE", Name: "iPhone 17 Pro", OS: "iOS 26.0"}},
 		records: []model.BuildRecord{{ID: "123-001", Scheme: "App", Simulator: model.Simulator{Name: "iPhone 17 Pro"}, Phase: model.PhaseBuilding, StartedAt: time.Now()}},
-		outputs: map[string]string{"123-001": "[lazyxcode] Building App for iPhone 17 Pro\nCompileSwift App.swift\n"}, outputFollow: true,
+		outputs: map[string]*activityLog{"123-001": logWithText("[lazyxcode] Building App for iPhone 17 Pro\nCompileSwift App.swift\n")}, outputFollow: true,
 	}
 	if err := a.layout(g); err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestSmallTerminalShowsGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer g.Close()
-	a := &App{gui: g, focus: "build", outputs: map[string]string{}}
+	a := &App{gui: g, focus: "build", outputs: map[string]*activityLog{}}
 	if err := a.layout(g); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestNarrowTerminalUsesResponsivePanels(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer g.Close()
-	a := &App{gui: g, focus: "build", outputs: map[string]string{}}
+	a := &App{gui: g, focus: "build", outputs: map[string]*activityLog{}}
 	if err := a.layout(g); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestShortTerminalCollapsesUnfocusedSidePanel(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer g.Close()
-	a := &App{gui: g, focus: "build", outputs: map[string]string{}}
+	a := &App{gui: g, focus: "build", outputs: map[string]*activityLog{}}
 	if err := a.layout(g); err != nil {
 		t.Fatal(err)
 	}
@@ -198,18 +198,21 @@ func TestTargetPickerSearchFrameDoesNotDeclareOverlap(t *testing.T) {
 }
 
 func TestBuildEventsAreAppliedInSequence(t *testing.T) {
-	record := model.BuildRecord{ID: "build", Phase: model.PhaseBuilding}
-	a := &App{outputs: map[string]string{}}
-	a.queueBuildEvent(buildmanager.Event{Record: model.BuildRecord{ID: "build", Phase: model.PhaseSucceeded}, Output: "second", Sequence: 2})
-	if len(a.records) != 0 {
-		t.Fatal("out-of-order event was applied before its predecessor")
+	updates := make(chan func(), 1)
+	a := &App{dispatch: func(fn func()) { updates <- fn }}
+	a.handleBuildEvent(buildmanager.Event{Record: model.BuildRecord{ID: "build", Phase: model.PhaseBuilding}, Output: "first", Sequence: 1})
+	a.handleBuildEvent(buildmanager.Event{Record: model.BuildRecord{ID: "build", Phase: model.PhaseSucceeded}, Output: "second", Sequence: 2})
+	select {
+	case apply := <-updates:
+		apply()
+	case <-time.After(time.Second):
+		t.Fatal("no update")
 	}
-	a.queueBuildEvent(buildmanager.Event{Record: record, Output: "first", Sequence: 1})
 	if len(a.records) != 1 || a.records[0].Phase != model.PhaseSucceeded {
 		t.Fatalf("record = %#v", a.records)
 	}
-	if a.outputs["build"] != "firstsecond" {
-		t.Fatalf("output = %q", a.outputs["build"])
+	if got := a.outputs["build"].text(true, time.Now(), model.PhaseSucceeded); got != "firstsecond" {
+		t.Fatalf("output = %q", got)
 	}
 }
 
@@ -223,7 +226,7 @@ func TestSimulatorPickerCursorTracksSelectionAcrossViewport(t *testing.T) {
 	for i := range items {
 		items[i] = overlayItem{ID: fmt.Sprint(i), Label: fmt.Sprintf("Simulator %02d", i)}
 	}
-	a := &App{gui: g, focus: "build", outputs: map[string]string{}, overlay: &overlayState{kind: "simulator", title: "Select Simulator", items: items}}
+	a := &App{gui: g, focus: "build", outputs: map[string]*activityLog{}, overlay: &overlayState{kind: "simulator", title: "Select Simulator", items: items}}
 
 	assertSelection := func(want int) {
 		t.Helper()
@@ -254,7 +257,7 @@ func TestHelpOverlayNavigationScrollsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer g.Close()
-	a := &App{gui: g, focus: "build", outputs: map[string]string{}}
+	a := &App{gui: g, focus: "build", outputs: map[string]*activityLog{}}
 	if err := a.showHelp(g, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +595,7 @@ func TestOutputVerbosityAppearsInPanelTitle(t *testing.T) {
 	}
 	defer g.Close()
 	a := &App{
-		gui: g, focus: "output", outputs: map[string]string{"build": "[lazyxcode] Building App\nCompileSwift App.swift\n"},
+		gui: g, focus: "output", outputs: map[string]*activityLog{"build": logWithText("[lazyxcode] Building App\nCompileSwift App.swift\n")},
 		records: []model.BuildRecord{{ID: "build", Phase: model.PhaseBuilding, StartedAt: time.Now()}}, outputFollow: true,
 	}
 	if err := a.layout(g); err != nil {
