@@ -191,6 +191,10 @@ func (l *activityLog) observeLine(line string, newline bool) {
 	if l.inConsole {
 		if l.longLine {
 			l.console.truncated = true
+			// The retained tail may start inside a UTF-8 rune.
+			for len(line) > 0 && !utf8.RuneStart(line[0]) {
+				line = line[1:]
+			}
 		}
 		if newline {
 			line += "\n"

@@ -76,6 +76,32 @@ func TestFragmentedConsolePreservesUnicodeANSIAndFinalPartialLine(t *testing.T) 
 	}
 }
 
+func TestCompletedLongConsoleLinePreservesUTF8(t *testing.T) {
+	for _, chunkRunes := range []int{2000, 1000} {
+		for _, newline := range []bool{true, false} {
+			t.Run(fmt.Sprintf("chunkRunes=%d/newline=%t", chunkRunes, newline), func(t *testing.T) {
+				log := newActivityLog(model.OperationRun)
+				log.append("[lazyxcode] App console\nshort line\n")
+				for written := 0; written < 2000; written += chunkRunes {
+					log.append(strings.Repeat("界", chunkRunes))
+				}
+				if newline {
+					log.append("\n")
+				}
+				log.finish()
+				text := log.text(false, time.Now(), model.PhaseSucceeded)
+				if !utf8.ValidString(text) {
+					t.Fatal("completed long console line contains invalid UTF-8")
+				}
+				want := "APP CONSOLE\n" + omittedOutput + "short line\n" + strings.Repeat("界", 1365)
+				if text != want {
+					t.Fatal("completed long console line did not preserve the bounded tail and preceding line")
+				}
+			})
+		}
+	}
+}
+
 func TestHugeUnterminatedLineIsBoundedAndRecoversAtNewline(t *testing.T) {
 	log := newActivityLog(model.OperationRun)
 	log.append("[lazyxcode] App console\n")
