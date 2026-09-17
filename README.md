@@ -121,6 +121,7 @@ Local builds do not require an App Store Connect API key. Set up [Xcode Cloud cr
 | `a` | Unused | Download an artifact from the selected run |
 | `v` | Toggle concise or raw output | Toggle structured details or raw logs |
 | `y` | Copy the displayed output | Copy the displayed output |
+| `[`, `]` | Older/newer raw log page; `G` returns to latest output | Unavailable |
 | `j`, `k`, arrows | Navigate or scroll | Same; moving past the last run loads older runs |
 | `g`, `G` | First/last activity or top/follow output | Same |
 | `:` | Search available actions | Same, with Cloud actions only |
@@ -138,7 +139,9 @@ Cloud configuration stays compact: Product, Workflow, connection status, and ref
 
 Distinct scheme/target pairs can build or test concurrently. Successful simulator builds boot the selected simulator, open the device window, install the generated app, and launch it. The window uses Device Hub from the selected Xcode, respecting `DEVELOPER_DIR` or `xcode-select`. If that Xcode does not include Device Hub, it uses the same Xcode's Simulator.app. Physical-device builds deploy and launch through `devicectl`; Mac builds launch the generated app directly. Simulator and physical-device launches remain attached and stream the app's standard output and error, including `print` output, until the app exits. Press `x` to stop the running app. Starting another build for the same scheme and target stops the attached app first; other duplicate activities are rejected because they share an incremental DerivedData cache.
 
-The output pane is concise by default. It shows live, wall-clock build phases, a deduplicated list of warnings and errors using compact `file:line:column — message` entries, and the attached app console after launch. Press `v` to inspect the complete raw transcript and Xcode's detailed command timing summary; persisted logs retain build and runtime output together with phase timings.
+The output pane is concise by default. It shows live, wall-clock build phases, a deduplicated list of warnings and errors using compact `file:line:column — message` entries, and the attached app console after launch. Press `v` to inspect raw output and Xcode's detailed command timing summary. The live window retains up to 2,000 newline-delimited lines or 256 KiB, and shortens individual lines longer than 4 KiB for display. Updates are batched at up to 20 times per second. Build steps, diagnostics, and test summaries are tracked separately, with up to 256 entries per category. A notice appears when a display limit is reached.
+
+Persisted logs retain the complete build and runtime transcript together with phase timings. Press `[` to browse disk-backed raw log pages, `]` for newer pages, and `G` to return to the latest output. Press `i` to find the complete log's path. Copying with `y` copies the displayed window or page.
 
 Test output follows the same concise/raw model. Concise mode groups XCTest and Swift Testing results by suite, shows the currently running test, pass/failure counts, suite durations, and source-linked failures.
 

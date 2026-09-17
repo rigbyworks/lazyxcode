@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,24 +56,34 @@ type App struct {
 	testOutput       *testOutputView
 	discoveringTests string
 
+	outputPage          *outputPage
 	targetRefreshCancel context.CancelFunc
 	lastTargetRefresh   time.Time
 
-	records         []model.BuildRecord
-	buildIndex      int
-	outputs         map[string]string
-	eventNext       map[string]uint64
-	eventQueue      map[string]map[uint64]buildmanager.Event
-	focus           string
-	configRow       int
-	status          string
-	cacheSize       int64
-	loading         bool
-	outputFollow    bool
-	verboseOutput   bool
-	overlay         *overlayState
-	renderedOverlay *overlayState
-	generation      atomic.Uint64
+	records              []model.BuildRecord
+	buildIndex           int
+	outputs              map[string]*activityLog
+	buildEventMu         sync.Mutex
+	pendingBuilds        map[string]*buildUpdate
+	captureLogs          map[string]*activityLog
+	buildUpdateScheduled bool
+	buildEventOrder      uint64
+	outputLoadCancel     context.CancelFunc
+	outputLoadingID      string
+	renderedOutput       string
+	outputFullText       string
+	pausedOutput         *outputSnapshot
+	renderedOutputView   *gocui.View
+	focus                string
+	configRow            int
+	status               string
+	cacheSize            int64
+	loading              bool
+	outputFollow         bool
+	verboseOutput        bool
+	overlay              *overlayState
+	renderedOverlay      *overlayState
+	generation           atomic.Uint64
 
 	mode              appMode
 	cloud             *cloudState
@@ -95,8 +106,7 @@ func Run(ctx context.Context, directory string, client *xcode.Client, preference
 
 	a := &App{
 		ctx: runContext, directory: directory, xcode: client, preferences: preferences,
-		containers: containers, gui: g, focus: "build", outputs: map[string]string{},
-		eventNext: map[string]uint64{}, eventQueue: map[string]map[uint64]buildmanager.Event{},
+		containers: containers, gui: g, focus: "build", outputs: map[string]*activityLog{},
 		copyToClipboard: copyToClipboard,
 		openXcode:       openXcode,
 	}
@@ -120,6 +130,9 @@ func Run(ctx context.Context, directory string, client *xcode.Client, preference
 	}
 	loopErr := g.MainLoop()
 	a.closing.Store(true)
+	if a.outputLoadCancel != nil {
+		a.outputLoadCancel()
+	}
 	cancel()
 	if a.manager != nil {
 		a.manager.CancelAll()
@@ -182,6 +195,12 @@ func (a *App) chooseContainer(index int) {
 		return
 	}
 	a.cancelTargetRefresh()
+	if a.outputLoadCancel != nil {
+		a.outputLoadCancel()
+	}
+	a.outputLoadingID = ""
+	a.outputPage = nil
+	a.outputs = map[string]*activityLog{}
 	a.schemes = nil
 	a.sims = nil
 	a.testTargets = nil
@@ -325,44 +344,8 @@ func simulatorIndex(items []model.Simulator, id string) int {
 	return -1
 }
 
-func (a *App) handleBuildEvent(event buildmanager.Event) {
-	a.update(func() {
-		a.queueBuildEvent(event)
-	})
-}
-
-func (a *App) queueBuildEvent(event buildmanager.Event) {
-	if event.Sequence == 0 {
-		a.applyBuildEvent(event)
-		return
-	}
-	if a.eventQueue == nil {
-		a.eventQueue = map[string]map[uint64]buildmanager.Event{}
-	}
-	if a.eventNext == nil {
-		a.eventNext = map[string]uint64{}
-	}
-	if a.eventQueue[event.Record.ID] == nil {
-		a.eventQueue[event.Record.ID] = map[uint64]buildmanager.Event{}
-	}
-	a.eventQueue[event.Record.ID][event.Sequence] = event
-	next := a.eventNext[event.Record.ID]
-	if next == 0 {
-		next = 1
-	}
-	for {
-		queued, ok := a.eventQueue[event.Record.ID][next]
-		if !ok {
-			break
-		}
-		delete(a.eventQueue[event.Record.ID], next)
-		a.applyBuildEvent(queued)
-		next++
-	}
-	a.eventNext[event.Record.ID] = next
-}
-
-func (a *App) applyBuildEvent(event buildmanager.Event) {
+func (a *App) applyBuildEvent(update buildUpdate) {
+	event := update.event
 	found := false
 	for i := range a.records {
 		if a.records[i].ID == event.Record.ID {
@@ -375,12 +358,12 @@ func (a *App) applyBuildEvent(event buildmanager.Event) {
 		a.records = append([]model.BuildRecord{event.Record}, a.records...)
 		a.buildIndex = 0
 	}
-	if event.Output != "" {
-		if a.outputs == nil {
-			a.outputs = map[string]string{}
-		}
-		a.outputs[event.Record.ID] += event.Output
+	if a.outputs == nil {
+		a.outputs = map[string]*activityLog{}
 	}
+	a.outputs[event.Record.ID] = update.log
+	a.evictOutputs()
+
 	a.status = statusForRecord(event.Record)
 	if event.Record.ID == a.discoveringTests && !event.Record.Phase.Active() {
 		a.discoveringTests = ""
@@ -395,22 +378,6 @@ func statusForRecord(record model.BuildRecord) string {
 		return strings.ReplaceAll(record.Error, "\n", " ")
 	}
 	return fmt.Sprintf("%s - %s on %s", recordPhaseLabel(record), record.Scheme, record.Simulator.Name)
-}
-
-func (a *App) loadSelectedOutput() {
-	if a.project == nil || len(a.records) == 0 || a.buildIndex >= len(a.records) {
-		return
-	}
-	record := a.records[a.buildIndex]
-	if _, ok := a.outputs[record.ID]; ok {
-		return
-	}
-	data, err := a.project.ReadLog(record)
-	if err != nil {
-		a.outputs[record.ID] = "Unable to read build log: " + err.Error()
-		return
-	}
-	a.outputs[record.ID] = string(data)
 }
 
 func (a *App) openContainerPicker() {

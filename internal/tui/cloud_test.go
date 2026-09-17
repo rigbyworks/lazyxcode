@@ -207,7 +207,7 @@ func newCloudHarness(t *testing.T, service *fakeCloud, width, height int) *cloud
 	h.app = &App{
 		gui: g, focus: "build", container: container, preferences: preferences, project: project,
 		schemes: []string{"App"}, sims: []model.Simulator{{ID: "PHONE", Name: "iPhone 17 Pro"}},
-		outputs: map[string]string{}, now: func() time.Time { return now },
+		outputs: map[string]*activityLog{}, now: func() time.Time { return now },
 		records: []model.BuildRecord{{ID: "123-001", Scheme: "App", Simulator: model.Simulator{Name: "iPhone 17 Pro"}, Phase: model.PhaseBuilding, StartedAt: time.Now()}},
 	}
 	h.app.dispatch = func(fn func()) { h.updates <- fn }
@@ -228,7 +228,7 @@ func (h *cloudHarness) drain() {
 		select {
 		case fn := <-h.updates:
 			fn()
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(75 * time.Millisecond):
 			if len(h.updates) == 0 {
 				return
 			}
@@ -311,8 +311,9 @@ func TestModeSwitchKeepsLocalAndCloudStateIndependent(t *testing.T) {
 		t.Fatalf("cloud selection = %d, local selection = %d", a.cloud.runIndex, a.buildIndex)
 	}
 	// A local build keeps producing events while Cloud mode is visible.
-	a.queueBuildEvent(buildmanager.Event{Record: model.BuildRecord{ID: "123-001", Scheme: "App", Phase: model.PhaseSucceeded, StartedAt: time.Now()}, Output: "done\n", Sequence: 1})
-	if a.records[0].Phase != model.PhaseSucceeded || a.outputs["123-001"] != "done\n" {
+	a.handleBuildEvent(buildmanager.Event{Record: model.BuildRecord{ID: "123-001", Scheme: "App", Phase: model.PhaseSucceeded, StartedAt: time.Now()}, Output: "done\n", Sequence: 1})
+	h.drain()
+	if a.records[0].Phase != model.PhaseSucceeded || a.outputs["123-001"].text(true, time.Now(), model.PhaseSucceeded) != "done\n" {
 		t.Fatalf("local event was not applied in cloud mode: %#v", a.records[0])
 	}
 	h.press(a.toggleMode)

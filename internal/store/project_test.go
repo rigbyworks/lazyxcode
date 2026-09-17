@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,5 +166,41 @@ func TestRenamedRootsLeaveOldDataUntouched(t *testing.T) {
 	data, err := os.ReadFile(marker)
 	if err != nil || string(data) != "old data" {
 		t.Fatalf("old data changed: %q %v", data, err)
+	}
+}
+
+func TestCopyLogStreamsCompleteTranscriptAndHonorsCancellation(t *testing.T) {
+	project := testProject(t)
+	file, path, err := project.NewLog("stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Repeat("complete persisted console line\n", 20000)
+	if _, err = file.WriteString(want); err != nil {
+		t.Fatal(err)
+	}
+	file.Close()
+	record := model.BuildRecord{LogPath: path}
+	var got strings.Builder
+	if err = project.CopyLog(context.Background(), record, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != want {
+		t.Fatal("persisted transcript was truncated")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got.Reset()
+	if err = project.CopyLog(ctx, record, &got); !errors.Is(err, context.Canceled) || got.Len() != 0 {
+		t.Fatalf("cancelled load: %v, %d bytes", err, got.Len())
+	}
+	for _, path := range []string{"/etc/passwd", filepath.Join(project.stateDir, "logs-other", "log")} {
+		record.LogPath = path
+		if err = project.CopyLog(context.Background(), record, &got); err == nil {
+			t.Fatal("accepted unmanaged log path")
+		}
+		if _, _, _, err = project.ReadLogPage(record, -1, 256); err == nil {
+			t.Fatal("paged unmanaged log path")
+		}
 	}
 }

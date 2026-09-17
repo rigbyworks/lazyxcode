@@ -30,6 +30,8 @@ func (a *App) bindKeys(g *gocui.Gui) error {
 			binding{view, 'c', a.byMode(a.confirmClearCache, nil)},
 			binding{view, 'L', a.byMode(nil, a.loadOlderCloudRuns)},
 			binding{view, 'v', a.byMode(a.toggleOutputVerbosity, a.toggleCloudVerbosity)},
+			binding{view, '[', a.byMode(a.olderOutputPage, nil)},
+			binding{view, ']', a.byMode(a.newerOutputPage, nil)},
 			binding{view, 'y', a.copyOutput},
 			binding{view, 'o', a.openInXcode},
 			binding{view, 'a', a.byMode(nil, a.openCloudArtifactPicker)},
@@ -187,7 +189,7 @@ func (a *App) startBuildOrRun(operation model.Operation) error {
 	a.records = append([]model.BuildRecord{record}, a.records...)
 	a.buildIndex = 0
 	a.outputFollow = true
-	a.outputs[record.ID] = ""
+	a.outputs[record.ID] = newActivityLog(record.OperationKind())
 	a.status = "Queued " + string(operation) + " #" + shortID(record.ID)
 	return nil
 }
@@ -298,6 +300,8 @@ func (a *App) reload(*gocui.Gui, *gocui.View) error {
 func (a *App) toggleOutputVerbosity(g *gocui.Gui, _ *gocui.View) error {
 	a.testOutput = nil
 	a.verboseOutput = !a.verboseOutput
+	a.outputPage = nil
+	a.pausedOutput = nil
 	mode := "Concise"
 	if a.verboseOutput {
 		mode = "Raw"
@@ -315,7 +319,11 @@ func (a *App) copyOutput(g *gocui.Gui, _ *gocui.View) error {
 		a.status = "Output is unavailable"
 		return nil
 	}
-	output := ansiPattern.ReplaceAllString(view.Buffer(), "")
+	text := view.Buffer()
+	if a.mode == modeLocal && a.outputFullText != "" && a.renderedOutputView == view {
+		text = a.outputFullText
+	}
+	output := ansiPattern.ReplaceAllString(text, "")
 	if strings.TrimSpace(output) == "" {
 		a.status = "No output to copy"
 		return nil
@@ -391,6 +399,7 @@ i                    Show status and connection details
 q / Ctrl-C           Quit
 
 Local mode
+[ / ]                Older/newer raw log page; G returns to latest
 Enter                Select scheme/target or inspect test activity
 b                    Build without launching
 r                    Build and run
@@ -426,7 +435,7 @@ func (a *App) requestQuit(*gocui.Gui, *gocui.View) error {
 
 func (a *App) scrollOutput(delta int) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, view *gocui.View) error {
-		a.outputFollow = false
+		a.pauseOutput(view)
 		if delta > 0 {
 			view.ScrollDown(delta)
 		} else {
@@ -439,10 +448,12 @@ func (a *App) scrollOutput(delta int) func(*gocui.Gui, *gocui.View) error {
 func (a *App) outputEnd(bottom bool) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, view *gocui.View) error {
 		if !bottom {
-			a.outputFollow = false
+			a.pauseOutput(view)
 			view.SetOrigin(0, 0)
 			return nil
 		}
+		a.outputPage = nil
+		a.pausedOutput = nil
 		scrollOutputToBottom(view)
 		a.outputFollow = true
 		return nil

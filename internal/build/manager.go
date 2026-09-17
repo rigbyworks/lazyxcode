@@ -42,6 +42,7 @@ type Request struct {
 
 type Manager struct {
 	mu       sync.Mutex
+	emitMu   sync.Mutex
 	executor Executor
 	store    *store.Project
 	jobs     map[string]context.CancelFunc
@@ -227,6 +228,10 @@ func (m *Manager) persist(record model.BuildRecord) {
 }
 
 func (m *Manager) emit(event Event) {
+	// Preserve sequence order at the callback boundary. UI consumers can batch
+	// events without retaining an unbounded queue to repair delivery order.
+	m.emitMu.Lock()
+	defer m.emitMu.Unlock()
 	if m.onEvent != nil {
 		if counter, ok := m.events.Load(event.Record.ID); ok {
 			event.Sequence = counter.(*atomic.Uint64).Add(1)

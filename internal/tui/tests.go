@@ -95,9 +95,9 @@ func (a *App) queueTestRequest(request buildmanager.Request) {
 	a.buildIndex, a.outputFollow = 0, true
 	a.testOutput = nil
 	if a.outputs == nil {
-		a.outputs = map[string]string{}
+		a.outputs = map[string]*activityLog{}
 	}
-	a.outputs[record.ID] = ""
+	a.outputs[record.ID] = newActivityLog(record.OperationKind())
 	a.overlay = nil
 	if request.Operation == model.OperationDiscoverTests {
 		a.discoveringTests = record.ID
