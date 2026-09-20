@@ -5,12 +5,13 @@ class Lazyxcode < Formula
   sha256 "@SHA256@"
   license "MIT"
 
-  depends_on "go" => :build
+  depends_on xcode: ["27.0", :build]
   depends_on arch: :arm64
   depends_on macos: :sequoia
 
   def install
-    system "go", "build", *std_go_args(ldflags: "-X main.version=v#{version}")
+    system "make", "build", "VERSION=v#{version}"
+    bin.install "lazyxcode"
   end
 
   def caveats

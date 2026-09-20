@@ -1,6 +1,6 @@
 # Releasing lazyxcode
 
-Releases are tagged source distributions. The Homebrew formula builds the binary locally; no signing, notarization, or binary-upload step is required.
+Releases are tagged source distributions. The Homebrew formula builds the Swift executable locally with Xcode 27 or newer; no signing, notarization, or binary-upload step is required.
 
 ## One-time setup
 
@@ -43,9 +43,15 @@ The executable and all new state/cache paths use `lazyxcode`. Cloud credentials 
 ## Run the disposable integration check
 
 ```sh
-LAZYXCODE_RELEASE_SMOKE=1 go test ./internal/xcode -run '^TestReleaseSmoke$' -v -count=1 -timeout 20m
+LAZYXCODE_RELEASE_SMOKE=1 swift test --filter releaseSmoke
 ```
 
-This creates a fixture project and an iPhone 16 simulator, runs the real build, install, attached launch, XCTest, result-inspection, and coverage commands, then deletes the simulator. An iOS runtime must already be installed. CI runs it with Xcode 16.3 to exercise the minimum supported version and legacy Simulator. Run it locally with Xcode 27 to cover Device Hub as well.
+This creates a fixture project and an iPhone 16 simulator, runs the real build, install, attached launch, test enumeration, XCTest, result-inspection, and coverage commands, then deletes the simulator. An iOS runtime must already be installed. The simulator CI job runs it with Xcode 16.3 and a separate Swift 6.4 toolchain to exercise the minimum supported version and legacy Simulator. Run it locally with Xcode 27 to cover Device Hub as well.
 
 CI also runs `bash scripts/test-homebrew.sh` on a clean macOS host. It packages the current commit in a temporary tap, checks install/reinstall, upgrades between two local fixture versions, and verifies uninstall preserves state. It does not publish test versions. Homebrew requires Command Line Tools compatible with the host macOS even when full Xcode is installed.
+
+## Swift rewrite
+
+Swift-TUI is pinned to 0.13.5 and requires Swift 6.4. The release build embeds the version in the executable, restores the checkout's development version afterward, and needs no resource bundle beside the installed command. Existing `lazyxcode` preferences, project hashes, history, logs, and caches are compatible with the Go implementation.
+
+The main checks, release, and Homebrew jobs use the `xcode-27` hosted preview image, which includes Swift 6.4. The terminal smoke script drives the target picker, cache confirmation, action search, help, Cloud mode, and clean exit through a real PTY. `make check` and the simulator smoke test can use a standalone Swift 6.4 toolchain with an older selected Xcode.

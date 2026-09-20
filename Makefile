@@ -1,24 +1,33 @@
-.PHONY: build install test check clean
+.PHONY: build install test check clean smoke terminal-smoke
 
 BINARY := lazyxcode
 VERSION ?= dev
 BINDIR ?= $(HOME)/.local/bin
+export VERSION
 
 build:
-	go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BINARY) .
+	bash scripts/build.sh
 
 install: build
 	install -d "$(BINDIR)"
 	install -m 755 "$(BINARY)" "$(BINDIR)/$(BINARY)"
 
 test:
-	go test ./...
+	swift test
 
 check:
-	test -z "$$(gofmt -l .)"
-	go vet ./...
-	go test -race ./...
-	go build ./...
+	swift format lint --strict --recursive Sources Tests Package.swift
+	swift test
+	swift build
+	bash scripts/test-cli.sh
+
+smoke:
+	LAZYXCODE_RELEASE_SMOKE=1 swift test --filter releaseSmoke
+
+terminal-smoke:
+	swift build
+	python3 scripts/test-terminal.py "$$(swift build --show-bin-path)/lazyxcode"
 
 clean:
+	swift package clean
 	rm -f "$(BINARY)"

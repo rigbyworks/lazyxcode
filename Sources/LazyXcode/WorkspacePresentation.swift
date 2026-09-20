@@ -1,0 +1,149 @@
+import Foundation
+import LazyXcodeCore
+
+struct WorkspaceLayout {
+    let width: Int
+    let height: Int
+    let pane: Int
+    var sidebar: Int {
+        width >= 80 ? min(46, max(34, width * 38 / 100)) : min(min(30, width - 22), max(22, width * 42 / 100))
+    }
+    var contentHeight: Int { max(2, height - 2) }
+    var buildHeight: Int { contentHeight >= 12 ? 9 : pane == 0 ? max(2, contentHeight - 2) : 2 }
+    var outputWidth: Int { max(1, width - sidebar - 2) }
+    var outputHeight: Int { max(1, contentHeight - 2) }
+}
+
+extension WorkspaceModel {
+    var hasActiveActivities: Bool {
+        managers.values.contains(where: \.active) || manager?.active == true || !queuedRequests.isEmpty
+    }
+    func requestQuit() -> Bool {
+        guard hasActiveActivities else { return true }
+        showMenu(
+            "Active Activities",
+            [
+                MenuItem("Keep working") { self.closeMenu() },
+                MenuItem("Cancel activities and quit") { self.quitRequested = true },
+            ])
+        menu?.searchable = false
+        return false
+    }
+    func requestClearCache() {
+        guard manager?.active != true else {
+            status = "Stop active activities before clearing DerivedData"
+            return
+        }
+        showMenu(
+            "Clear build cache?",
+            [
+                MenuItem("Keep cache") { self.closeMenu() },
+                MenuItem("Clear DerivedData. Keep history, logs, and results.") {
+                    self.closeMenu()
+                    self.clearCache()
+                    self.refreshCacheSize()
+                },
+            ])
+        menu?.searchable = false
+    }
+    func refreshCacheSize() {
+        cacheSizeTask?.cancel()
+        guard let root = manager?.store.cache.appendingPathComponent("derived-data") else { return }
+        let token = generation
+        let scan = Task.detached {
+            var size: Int64 = 0
+            let files = FileManager.default.enumerator(
+                at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey])
+            while let url = files?.nextObject() as? URL {
+                if Task.isCancelled { break }
+                if let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                    values.isRegularFile == true
+                {
+                    size += Int64(values.fileSize ?? 0)
+                }
+            }
+            return size
+        }
+        cacheSizeTask = Task {
+            let size = await withTaskCancellationHandler {
+                await scan.value
+            } onCancel: {
+                scan.cancel()
+            }
+            if !Task.isCancelled && token == generation { cacheBytes = size }
+        }
+    }
+    var cloudInformation: String {
+        let product = cloudProducts.first { $0.id == cloudProduct }?.name ?? "Not selected"
+        let workflow = cloudWorkflows.first { $0.id == cloudWorkflow }?.name ?? "All workflows"
+        let interval = cloudPage.items.contains(where: \.active) ? 15 : 60
+        return
+            "XCODE CLOUD · READ ONLY\n\nProject: \(container.path)\nProduct: \(product)\nWorkflow: \(workflow)\nRefresh: every \(interval)s\nLast refresh: \(cloudLastRefresh?.formatted() ?? "Never")\n\n\(cloudStatus)\n\n\(loading ? status : "r refresh · a artifacts · Enter test results")"
+    }
+    func footer(width: Int) -> String {
+        if menu != nil { return " [Enter] Select   [Esc] Back" }
+        if loading { return " [Esc / x] Cancel   [:] Actions" }
+        let anchors = "[:] Actions   [m] \(cloudMode ? "Local" : "Cloud")"
+        let hints: [String]
+        if pane == 2 {
+            hints =
+                detailText == nil
+                ? ["[j/k] Scroll", "[y] Copy", "[v] \((cloudMode ? cloudRaw : raw) ? "Concise" : "Raw")"]
+                : ["[Enter] Actions", "[Esc] Log", "[y] Copy"]
+        } else if pane == 1 {
+            hints =
+                cloudMode
+                ? ["[Enter] Results", "[a] Files", "[r] Refresh"]
+                : selectedRecord?.phase.active == true
+                    ? ["[x] Stop", "[t] Test"] : ["[Enter] Results", "[r] Run", "[b] Build"]
+        } else {
+            hints = cloudMode ? ["[Enter] Edit", "[r] Refresh"] : ["[Enter] Edit", "[b] Build", "[t] Test"]
+        }
+        var visible: [String] = []
+        for hint in hints where (" " + (visible + [hint, anchors]).joined(separator: "   ")).count <= width {
+            visible.append(hint)
+        }
+        return " " + (visible + [anchors]).joined(separator: "   ")
+    }
+}
+
+extension BuildRecord {
+    var statusLabel: String {
+        if operation == .discoverTests && phase == .succeeded { return "TESTS" }
+        if operation == .discoverTests && phase == .testing { return "LIST" }
+        switch phase {
+        case .queued: return "QUEUE"
+        case .building: return "BUILD"
+        case .testing: return "TEST"
+        case .booting: return "BOOT"
+        case .installing: return "INSTALL"
+        case .launching: return "LAUNCH"
+        case .running: return "RUN"
+        case .succeeded: return operation == .test ? "PASS" : "OK"
+        case .cancelled: return "STOP"
+        default: return "FAIL"
+        }
+    }
+    func activityRow(width: Int) -> String {
+        let prefix =
+            statusLabel.padding(toLength: 7, withPad: " ", startingAt: 0) + " #"
+            + String((id.split(separator: "-").last ?? Substring(id)).suffix(4)) + " "
+        let available = max(3, width - prefix.count - duration.count - 1)
+        return prefix
+            + OutputFormatter.truncate(simulator.name, width: available).padding(
+                toLength: available, withPad: " ", startingAt: 0) + " " + duration
+    }
+}
+
+extension MenuItem {
+    func displayTitle(width: Int) -> String {
+        guard let destination else { return title }
+        let nameWidth = width - 28
+        guard nameWidth >= 8 else { return title }
+        return OutputFormatter.truncate(destination.name, width: nameWidth).padding(
+            toLength: nameWidth, withPad: " ", startingAt: 0)
+            + " " + OutputFormatter.truncate(destination.os, width: 7).padding(toLength: 7, withPad: " ", startingAt: 0)
+            + " " + destination.kindLabel.padding(toLength: 9, withPad: " ", startingAt: 0)
+            + " " + OutputFormatter.truncate(destination.state, width: 9)
+    }
+}
