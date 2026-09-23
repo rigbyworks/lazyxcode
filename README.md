@@ -39,7 +39,7 @@ Discovery checks the current directory for `.xcworkspace` and `.xcodeproj` direc
 3. Press `t` for all, unit, UI, or individual tests. Coverage is enabled by default and remembered per project.
 4. Select a completed test activity and press Enter to inspect results, coverage, attachments, or rerun failed tests.
 
-Destinations refresh every 15 seconds and when you open the destination picker. Discovery respects the selected scheme and excludes unavailable simulators and placeholder destinations. `DEVELOPER_DIR` and `xcode-select` determine which Xcode tools run.
+Schemes and destinations from the last day are cached between launches and shown immediately while Xcode refreshes them in the background. Cached devices may have disconnected since the last refresh. Destinations refresh every 15 seconds; opening the picker reuses results refreshed within that interval. Press `R` to force fresh scheme and destination discovery. Discovery respects the selected scheme and excludes unavailable simulators and placeholder destinations. `DEVELOPER_DIR` and `xcode-select` determine which Xcode tools run.
 
 ## Keyboard reference
 

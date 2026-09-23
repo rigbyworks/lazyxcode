@@ -85,7 +85,9 @@ final class WorkspaceModel {
     @ObservationIgnored let client: XcodeClient
     @ObservationIgnored var managers: [String: BuildManager] = [:]
     @ObservationIgnored var discovery: Task<Void, Never>?
+    @ObservationIgnored var discoveryID = UUID()
     @ObservationIgnored var destinationRefresh: Task<Void, Never>?
+    @ObservationIgnored var destinationRefreshID = UUID()
     @ObservationIgnored var pending: Task<Void, Never>?
     @ObservationIgnored var cloudRefresh: Task<Void, Never>?
     @ObservationIgnored var cloudClient: CloudClient?
@@ -116,6 +118,7 @@ final class WorkspaceModel {
     var destination: Destination? { destinations.first { $0.id == destinationID } }
     var coverage: Bool { preferences.coverageDisabled[container.path] != true }
     var title: String { cloudMode ? "Xcode Cloud · read-only" : "Local" }
+    var discoveryCache: DiscoveryCache? { manager.map { DiscoveryCache(store: $0.store) } }
 
     func start() {
         let directory = URL(fileURLWithPath: container.path).deletingLastPathComponent().path
@@ -130,6 +133,8 @@ final class WorkspaceModel {
         cancelPending()
         discovery?.cancel()
         destinationRefresh?.cancel()
+        discoveryID = UUID()
+        destinationRefreshID = UUID()
         cloudRefresh?.cancel()
         generation = UUID()
         cloudGeneration = UUID()
@@ -164,55 +169,98 @@ final class WorkspaceModel {
             let directory = URL(fileURLWithPath: value.path).deletingLastPathComponent().path
             preferences.containers[directory] = value.path
             savePreferences()
-            reload()
+            reload(useCache: true)
             refreshCacheSize()
         } catch {
             manager = nil
             status = error.localizedDescription
         }
     }
-    func reload() {
+    func reload(useCache: Bool = false) {
         guard manager?.active != true else {
             status = "Stop active activities before reloading project metadata"
             return
         }
         discovery?.cancel()
+        discoveryID = UUID()
+        let requestID = discoveryID
         let token = generation
         let container = container
-        status = "Loading schemes..."
+        let cache = discoveryCache
+        if useCache, let cached = cache?.schemes(), !cached.isEmpty {
+            schemes = cached
+            let remembered = preferences.schemes[container.path] ?? ""
+            chooseScheme(cached.contains(remembered) ? remembered : cached[0])
+        } else if !scheme.isEmpty {
+            // Refresh both queries concurrently when we already know a scheme.
+            destinationRefresh?.cancel()
+            destinationRefresh = nil
+            refreshDestinations(force: true)
+        }
+        status = schemes.isEmpty ? "Loading schemes..." : "Refreshing schemes and destinations..."
         discovery = Task {
-            defer { if token == generation { discovery = nil } }
+            defer { if requestID == discoveryID { discovery = nil } }
             do {
                 let found = try await client.schemes(container)
-                guard !Task.isCancelled, token == generation else { return }
+                guard !Task.isCancelled, token == generation, requestID == discoveryID else { return }
+                cache?.saveSchemes(found)
                 schemes = found
+                if var menu, menu.title == "Scheme" {
+                    let selected = menu.filtered.indices.contains(menu.index) ? menu.filtered[menu.index].id : nil
+                    menu.items = schemeItems()
+                    menu.index = menu.filtered.firstIndex(where: { $0.id == selected }) ?? 0
+                    self.menu = menu
+                }
                 let remembered = scheme.isEmpty ? preferences.schemes[container.path] ?? "" : scheme
-                chooseScheme(found.contains(remembered) ? remembered : found.first ?? "")
-                if found.isEmpty { status = "No schemes. Share a scheme in Xcode and press R." }
+                let selected = found.contains(remembered) ? remembered : found.first ?? ""
+                if selected != scheme || selected.isEmpty { chooseScheme(selected) }
+                if found.isEmpty {
+                    status = "No schemes. Share a scheme in Xcode and press R."
+                } else if destinationRefresh == nil {
+                    updateDestinationStatus()
+                }
             } catch { if !Task.isCancelled && token == generation { status = error.localizedDescription } }
         }
     }
     func chooseScheme(_ value: String) {
         destinationRefresh?.cancel()
+        destinationRefreshID = UUID()
         destinationRefresh = nil
         scheme = value
-        destinations = []
+        destinations = value.isEmpty ? [] : discoveryCache?.destinations(scheme: value) ?? []
         destinationID = preferences.simulators[container.path + "\0" + scheme] ?? ""
+        if !destinations.isEmpty, !destinations.contains(where: { $0.id == destinationID }) {
+            destinationID = destinations[0].id
+        }
         preferences.schemes[container.path] = value
         savePreferences()
-        if !value.isEmpty { refreshDestinations() }
+        lastDestinationRefresh = .distantPast
+        if !value.isEmpty {
+            status = destinations.isEmpty ? "Loading destinations..." : "Refreshing destinations..."
+            refreshDestinations(force: true)
+        }
     }
-    func refreshDestinations() {
+    func refreshDestinations(force: Bool = false) {
         guard destinationRefresh == nil, !scheme.isEmpty else { return }
+        guard force || Date().timeIntervalSince(lastDestinationRefresh) >= 15 else { return }
+        destinationRefreshID = UUID()
+        let requestID = destinationRefreshID
         let token = generation
         let scheme = scheme
         let container = container
+        let cache = discoveryCache
         lastDestinationRefresh = Date()
         destinationRefresh = Task {
-            defer { if token == generation && scheme == self.scheme { destinationRefresh = nil } }
+            defer {
+                if requestID == destinationRefreshID {
+                    lastDestinationRefresh = Date()
+                    destinationRefresh = nil
+                }
+            }
             do {
                 let found = try await client.destinations(container, scheme: scheme)
-                guard !Task.isCancelled, token == generation, scheme == self.scheme else { return }
+                guard !Task.isCancelled, token == generation, requestID == destinationRefreshID else { return }
+                cache?.saveDestinations(found, scheme: scheme)
                 destinations = found
                 if !found.contains(where: { $0.id == destinationID }) { destinationID = found.first?.id ?? "" }
                 if var menu, menu.title == "Destination" {
@@ -221,18 +269,21 @@ final class WorkspaceModel {
                     menu.index = menu.filtered.firstIndex(where: { $0.id == selected }) ?? 0
                     self.menu = menu
                 }
-                if status == "Ready" || status.hasPrefix("Loading") || status.hasPrefix("No compatible")
-                    || status.hasPrefix("Destination refresh failed")
-                {
-                    status =
-                        found.isEmpty
-                        ? "No compatible destinations. Install a simulator runtime or connect a device." : "Ready"
-                }
+                updateDestinationStatus()
             } catch {
                 if !Task.isCancelled && token == generation {
                     status = "Destination refresh failed: \(error.localizedDescription)"
                 }
             }
+        }
+    }
+    func updateDestinationStatus() {
+        if status == "Ready" || status.hasPrefix("Loading") || status.hasPrefix("Refreshing")
+            || status.hasPrefix("No compatible") || status.hasPrefix("Destination refresh failed")
+        {
+            status =
+                destinations.isEmpty
+                ? "No compatible destinations. Install a simulator runtime or connect a device." : "Ready"
         }
     }
     func chooseDestination(_ id: String) {
@@ -245,7 +296,7 @@ final class WorkspaceModel {
         original: BuildRecord? = nil
     ) {
         guard !shuttingDown, !cloudMode, let manager else { return }
-        guard discovery == nil else {
+        guard discovery == nil || schemes.contains(scheme) && destination != nil else {
             status = "Wait for project discovery to finish"
             return
         }
@@ -534,6 +585,14 @@ final class WorkspaceModel {
             }
         }
     }
+    func schemeItems() -> [MenuItem] {
+        schemes.map { value in
+            MenuItem(value, id: value) {
+                self.closeMenu()
+                self.chooseScheme(value)
+            }
+        }
+    }
     func activate() {
         if detailText != nil && !detailActions.isEmpty {
             showMenu("Result actions", detailActions)
@@ -546,14 +605,7 @@ final class WorkspaceModel {
             }
             switch buildRow {
             case 0:
-                showMenu(
-                    "Scheme",
-                    schemes.map { value in
-                        MenuItem(value) {
-                            self.closeMenu()
-                            self.chooseScheme(value)
-                        }
-                    }, selectedID: scheme)
+                showMenu("Scheme", schemeItems(), selectedID: scheme)
             case 1:
                 refreshDestinations()
                 showMenu("Destination", destinationItems(), selectedID: destinationID)
