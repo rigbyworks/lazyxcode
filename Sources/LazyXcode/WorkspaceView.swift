@@ -25,7 +25,7 @@ struct WorkspaceView: View {
                             .background(.background)
                     }
                 }.frame(width: width, height: layout.contentHeight)
-                Text(model.footer(width: width)).foregroundStyle(Color.cyan).lineLimit(1)
+                Text(model.footer(width: width)).foregroundStyle(.info).lineLimit(1)
                     .frame(width: width, alignment: .leading)
             }
             .focusable()
@@ -177,7 +177,7 @@ private struct HeaderView: View {
             if width >= 74 {
                 Text(OutputFormatter.truncate(title, width: width / 2)).bold()
                 Spacer(minLength: 1)
-                Text(OutputFormatter.truncate(status, width: width / 2 - 6) + " [i]").foregroundStyle(Color.gray)
+                Text(OutputFormatter.truncate(status, width: width / 2 - 6) + " [i]").foregroundStyle(.muted)
             } else {
                 Text(OutputFormatter.truncate(status.isEmpty ? title : status, width: width - 5) + " [i]")
             }
@@ -215,10 +215,12 @@ private struct Pane<Content: View>: View {
         .frame(width: max(0, width - 2), height: max(0, height - 2), alignment: .topLeading)
         .padding(1)
         .frame(width: width, height: max(2, height), alignment: .topLeading)
-        .border(focused ? Color.cyan : Color.gray)
+        .border(focused ? SemanticShapeStyle.info : SemanticShapeStyle.muted)
         .overlay(alignment: .topLeading) {
             Text(" " + OutputFormatter.truncate(title, width: width - 5) + " ")
-                .bold().foregroundStyle(focused ? Color.cyan : Color.gray).background(.background)
+                .bold().foregroundStyle(focused ? SemanticShapeStyle.info : SemanticShapeStyle.muted).background(
+                    .background
+                )
                 .padding(.leading, 2)
         }
     }
@@ -243,9 +245,9 @@ private struct BuildPane: View {
                     value: model.cloudWorkflows.first { $0.id == model.cloudWorkflow }?.name ?? "All workflows", row: 1)
                 setting("Connection", value: model.cloudRefreshing ? "Refreshing..." : "[i] Details", row: 2)
                 if height >= 8 {
-                    Text("  Read only · r refresh").foregroundStyle(Color.gray).lineLimit(1)
+                    Text("  Read only · r refresh").foregroundStyle(.muted).lineLimit(1)
                     Text("  Last: \(model.cloudLastRefresh?.formatted(date: .omitted, time: .standard) ?? "Never")")
-                        .foregroundStyle(Color.gray).lineLimit(1)
+                        .foregroundStyle(.muted).lineLimit(1)
                 }
             } else {
                 if height >= 7 { Text("  Container  \(model.container.name)").lineLimit(1) }
@@ -257,7 +259,7 @@ private struct BuildPane: View {
                     Text(
                         "  Cache: \(ByteCountFormatter.string(fromByteCount: model.cacheBytes, countStyle: .file))  [c] Clear"
                     )
-                    .foregroundStyle(Color.gray).lineLimit(1)
+                    .foregroundStyle(.muted).lineLimit(1)
                 }
             }
         }
@@ -267,7 +269,9 @@ private struct BuildPane: View {
             (model.pane == 0 && model.buildRow == row ? "> " : "  ")
                 + label.padding(toLength: 9, withPad: " ", startingAt: 0) + value + " [>]"
         )
-        .foregroundStyle(model.pane == 0 && model.buildRow == row ? Color.cyan : Color.white).lineLimit(1)
+        .foregroundStyle(
+            model.pane == 0 && model.buildRow == row ? SemanticShapeStyle.info : SemanticShapeStyle.foreground
+        ).lineLimit(1)
     }
 }
 
@@ -302,12 +306,12 @@ private struct ActivityPane: View {
             title: model.cloudMode ? "Cloud Activity [2]" : "Local Activity [2]", focused: model.pane == 1,
             width: width, height: height
         ) {
-            if rows.isEmpty && height > 3 { Text("No activities").foregroundStyle(Color.gray) }
+            if rows.isEmpty && height > 3 { Text("No activities").foregroundStyle(.muted) }
             ForEach(Array(rows.dropFirst(start).prefix(count)), id: \.id) { row in
                 Text((row.id == selected ? "› " : "  ") + row.text)
                     .frame(width: max(1, width - 2), alignment: .leading)
-                    .background(row.id == selected ? Color(red: 0.19, green: 0.36, blue: 0.27) : Color.clear)
-                    .foregroundStyle(Color.white).lineLimit(1)
+                    .background(row.id == selected ? SemanticShapeStyle.selection : SemanticShapeStyle.background)
+                    .foregroundStyle(.foreground).lineLimit(1)
             }
         }
     }
@@ -335,25 +339,25 @@ private struct OutputPane: View {
             height: height
         ) {
             ForEach(Array(lines.enumerated().dropFirst(offset).prefix(count)), id: \.offset) { _, line in
-                Text(line.isEmpty ? " " : line).foregroundStyle(outputColor(line)).lineLimit(1)
+                Text(line.isEmpty ? " " : line).foregroundStyle(outputStyle(line)).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 }
 
-private func outputColor(_ line: String) -> Color {
+private func outputStyle(_ line: String) -> SemanticShapeStyle {
     if line.contains("error:") || line.contains("✗") || line.contains("FAILED") || line.hasPrefix("[FAIL]") {
-        return .red
+        return .danger
     }
-    if line.contains("warning:") { return .yellow }
-    if line.contains("✓") || line.contains("SUCCEEDED") { return .green }
+    if line.contains("warning:") { return .warning }
+    if line.contains("✓") || line.contains("SUCCEEDED") { return .success }
     if line.hasPrefix("BUILD ") || line.hasPrefix("DIAGNOSTICS") || line.hasPrefix("TEST SUITES")
         || line == "APP CONSOLE" || line == "DEPLOYMENT" || line.contains("●")
     {
-        return .cyan
+        return .info
     }
-    return .white
+    return .foreground
 }
 
 private struct MenuView: View {
@@ -365,12 +369,13 @@ private struct MenuView: View {
         let count = max(1, height - 4)
         let start = max(0, min(menu.index - count / 2, items.count - count))
         Pane(title: menu.title, focused: true, width: width, height: height) {
-            if menu.searchable { Text("Search: \(menu.query)▏").foregroundStyle(Color.cyan).lineLimit(1) }
-            Text("↑ ↓ select · Enter choose · Esc back").foregroundStyle(Color.gray)
+            if menu.searchable { Text("Search: \(menu.query)▏").foregroundStyle(.info).lineLimit(1) }
+            Text("↑ ↓ select · Enter choose · Esc back").foregroundStyle(.muted)
             if items.isEmpty { Text("No matches") }
             ForEach(Array(items.enumerated().dropFirst(start).prefix(count)), id: \.element.id) { index, item in
                 Text((menu.index == index ? "› " : "  ") + item.displayTitle(width: width - 4))
-                    .foregroundStyle(menu.index == index ? Color.cyan : Color.white).lineLimit(1)
+                    .foregroundStyle(menu.index == index ? SemanticShapeStyle.info : SemanticShapeStyle.foreground)
+                    .lineLimit(1)
             }
         }
     }
