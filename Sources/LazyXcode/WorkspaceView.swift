@@ -22,8 +22,11 @@ struct WorkspaceView: View {
                         WorkspacePanes(model: model, layout: layout)
                     }
                     if let menu = model.menu {
-                        MenuView(menu: menu, width: min(76, width - 2), height: min(16, layout.contentHeight))
-                            .background(.background)
+                        MenuView(
+                            menu: menu, discoveryStatus: model.menuDiscoveryStatus, width: min(76, width - 2),
+                            height: min(16, layout.contentHeight)
+                        )
+                        .background(.background)
                     }
                 }.frame(width: width, height: layout.contentHeight)
                 StatusView(model: model, width: width)
@@ -201,7 +204,13 @@ private struct StatusView: View {
         let status = OutputFormatter.sanitize(model.cloudMode && !model.loading ? model.cloudStatus : model.status)
             .replacingOccurrences(of: "\n", with: " · ")
         HStack(spacing: 1) {
-            Text(OutputFormatter.truncate(" " + status, width: max(1, width - 13))).foregroundStyle(.muted)
+            let discovering = !model.cloudMode && model.discoveryStatus != nil
+            if discovering { DiscoverySpinner().padding(.leading, 1) }
+            Text(
+                OutputFormatter.truncate(
+                    discovering ? status : " " + status, width: max(1, width - (discovering ? 16 : 13)))
+            )
+            .foregroundStyle(.muted)
             Spacer(minLength: 0)
             Text("[i] Details ").foregroundStyle(.info)
         }.frame(width: width, height: 1, alignment: .leading)
@@ -284,8 +293,16 @@ private struct BuildPane: View {
                 }
                 if height >= 10 { Text("Read only · [r] Refresh").foregroundStyle(.muted).lineLimit(1) }
             } else {
-                setting("Scheme", value: model.scheme.isEmpty ? "Choose a scheme…" : model.scheme, row: 0)
-                setting("Target", value: model.destination?.name ?? "Choose a destination…", row: 1)
+                setting(
+                    "Scheme",
+                    value: model.scheme.isEmpty
+                        ? (model.discovery != nil ? "Loading…" : "Choose a scheme…") : model.scheme,
+                    row: 0, busy: model.discovery != nil)
+                setting(
+                    "Target",
+                    value: model.destination?.name
+                        ?? (model.destinationRefresh != nil ? "Loading…" : "Choose a destination…"),
+                    row: 1, busy: model.destinationRefresh != nil)
                 if height >= 8 {
                     Text(
                         model.destination.map { [$0.platform, $0.os].filter { !$0.isEmpty }.joined(separator: " · ") }
@@ -304,17 +321,21 @@ private struct BuildPane: View {
             }
         }
     }
-    private func setting(_ label: String, value: String, row: Int) -> some View {
+    private func setting(_ label: String, value: String, row: Int, busy: Bool = false) -> some View {
         let selected = model.pane == 0 && model.buildRow == row
         return VStack(alignment: .leading, spacing: 0) {
             if expanded {
                 Text(label).foregroundStyle(.muted).lineLimit(1)
             }
-            Text((selected ? "› " : "  ") + (expanded ? "" : label + ": ") + value)
-                .foregroundStyle(selected ? SemanticShapeStyle.info : SemanticShapeStyle.foreground)
-                .frame(width: max(1, width - 4), alignment: .leading)
-                .background(selected ? SemanticShapeStyle.selection : SemanticShapeStyle.background)
-                .lineLimit(1)
+            HStack(spacing: 0) {
+                Text(selected ? "› " : "  ")
+                if busy { DiscoverySpinner().padding(.trailing, 1) }
+                Text((expanded ? "" : label + ": ") + value).lineLimit(1)
+            }
+            .foregroundStyle(selected ? SemanticShapeStyle.info : SemanticShapeStyle.foreground)
+            .frame(width: max(1, width - 4), alignment: .leading)
+            .background(selected ? SemanticShapeStyle.selection : SemanticShapeStyle.background)
+            .lineLimit(1)
         }
     }
 }
@@ -444,6 +465,7 @@ private func outputStyle(_ line: String) -> SemanticShapeStyle {
 
 private struct MenuView: View {
     let menu: MenuState
+    let discoveryStatus: String?
     let width: Int
     let height: Int
     var body: some View {
@@ -458,8 +480,18 @@ private struct MenuView: View {
                 Text("/ " + (menu.query.isEmpty ? "Type to filter…" : menu.query) + "▏").foregroundStyle(.info)
                     .lineLimit(1)
             }
-            Text("↑↓ Select · Enter Choose · Esc Back").foregroundStyle(.muted).lineLimit(1)
-            if items.isEmpty { Text("No matches. Delete to clear filter.").foregroundStyle(.muted).lineLimit(1) }
+            if let discoveryStatus {
+                HStack(spacing: 1) {
+                    DiscoverySpinner()
+                    Text(discoveryStatus).foregroundStyle(.muted).lineLimit(1)
+                }
+            } else {
+                Text("↑↓ Select · Enter Choose · Esc Back").foregroundStyle(.muted).lineLimit(1)
+            }
+            if items.isEmpty && discoveryStatus == nil {
+                Text(menu.query.isEmpty ? "No items available." : "No matches. Delete to clear filter.")
+                    .foregroundStyle(.muted).lineLimit(1)
+            }
             ForEach(Array(items.enumerated().dropFirst(start).prefix(count)), id: \.element.id) { index, item in
                 Text((menu.index == index ? "› " : "  ") + item.displayTitle(width: width - 6))
                     .foregroundStyle(menu.index == index ? SemanticShapeStyle.info : SemanticShapeStyle.foreground)
