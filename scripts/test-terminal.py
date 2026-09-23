@@ -6,6 +6,7 @@ import os
 import pathlib
 import pty
 import select
+import signal
 import struct
 import subprocess
 import sys
@@ -131,7 +132,7 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         wait_for(expect, offset)
 
     try:
-        wait_for(b"[Local]  Cloud [1]")
+        wait_for(b"[1] Build")
         # Exercise the target picker and its asynchronous refresh before menus.
         send(b"j\r", b"Destination")
         send(b"\x1b", b"Actions")
@@ -142,6 +143,18 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         send(b"\r", b"Navigation")
         # The renderer may reuse unchanged cells in the title. Check new body text.
         send(b"\x1b", b"Choose a scheme")
+        # Resize the real runtime and exercise all full-width compact panes.
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 10, 44, 0, 0))
+        screen = TerminalScreen(44, 10)
+        os.kill(process.pid, signal.SIGWINCH)
+        send(b"1", b"Scheme")
+        send(b"2", b"No activities yet")
+        send(b"3", b"Ready when you are")
+        send(b":", b"Type to filter")
+        send(b"\x1b", b"Ready when you are")
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
+        screen = TerminalScreen(120, 30)
+        os.kill(process.pid, signal.SIGWINCH)
         send(b"m", b"Cloud")
         # Let the missing-credentials message render before quitting.
         wait_for(b"LAZYXCODE_ASC_")
@@ -155,7 +168,7 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         process.wait(timeout=1)
         assert process.returncode == 0, f"Exit status {process.returncode}"
         assert termios.tcgetattr(slave) == original, "Terminal settings were not restored"
-        print("PASS: startup, target picker, cache confirmation, action search, help, Cloud mode, quit, terminal restoration")
+        print("PASS: startup, target picker, cache confirmation, action search, help, compact resize and navigation, Cloud mode, quit, terminal restoration")
     finally:
         if process.poll() is None:
             process.terminate()

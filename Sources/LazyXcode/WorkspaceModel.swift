@@ -513,7 +513,7 @@ final class WorkspaceModel {
         }
         guard let record = selectedRecord else {
             return
-                "No activities yet.\n\nChoose a scheme and destination, then press b to build, r to run, or t to test."
+                "Ready when you are\n\n[b] Build  [r] Run  [t] Test\n[1] Choose a scheme and destination\n\n[2] Browse activity history\n[3] Read output and results\n\nPress ? for keyboard help."
         }
         if raw { return pageEnd == nil ? OutputFormatter.rawWindow(outputText) : outputText }
         let header = "\(record.scheme) · \(record.simulator.label)\n\(record.statusLabel) · \(record.duration)\n\n"

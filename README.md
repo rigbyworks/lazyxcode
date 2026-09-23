@@ -70,7 +70,7 @@ Schemes and destinations from the last day are cached between launches and shown
 | `?` | Keyboard help |
 | `q`, Ctrl-C | Quit and cancel active commands |
 
-Inside a picker, typing filters the list, arrows select, Enter chooses, and Esc goes back. Pickers open over the workspace and retain the current selection. Cache clearing and quitting with active work require confirmation. The terminal needs at least 44 columns and 10 rows. Short windows collapse the unfocused Build pane.
+Inside a picker, typing filters the list, arrows select, Enter chooses, and Esc goes back. Pickers open over the workspace and retain the current selection. Cache clearing and quitting with active work require confirmation. The terminal needs at least 44 columns and 10 rows. Below 80 columns, numbered tabs show one full-width pane at a time; use `1`, `2`, `3`, or Tab to switch. Wider windows keep Build and Activity beside Output. Short windows collapse the unfocused Build pane. The bottom status line preserves messages, and the Output border shows the visible line range and whether the log is live or paused.
 
 ## Builds, logs, and tests
 

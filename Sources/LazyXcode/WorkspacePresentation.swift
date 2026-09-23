@@ -5,12 +5,14 @@ struct WorkspaceLayout {
     let width: Int
     let height: Int
     let pane: Int
-    var sidebar: Int {
-        width >= 80 ? min(46, max(34, width * 38 / 100)) : min(min(30, width - 22), max(22, width * 42 / 100))
+    var compact: Bool { width < 80 }
+    var sidebar: Int { compact ? 0 : min(44, max(30, width / 3)) }
+    var contentHeight: Int { max(2, height - (compact ? 4 : 3)) }
+    var buildHeight: Int {
+        if compact { return contentHeight }
+        return contentHeight >= 16 ? 10 : pane == 0 ? max(5, contentHeight - 3) : 3
     }
-    var contentHeight: Int { max(2, height - 2) }
-    var buildHeight: Int { contentHeight >= 12 ? 9 : pane == 0 ? max(2, contentHeight - 2) : 2 }
-    var outputWidth: Int { max(1, width - sidebar - 2) }
+    var outputWidth: Int { max(1, width - sidebar - 4) }
     var outputHeight: Int { max(1, contentHeight - 2) }
 }
 
@@ -83,21 +85,26 @@ extension WorkspaceModel {
     func footer(width: Int) -> String {
         if menu != nil { return " [Enter] Select   [Esc] Back" }
         if loading { return " [Esc / x] Cancel   [:] Actions" }
-        let anchors = "[:] Actions   [m] \(cloudMode ? "Local" : "Cloud")"
+        let anchors =
+            width >= 64
+            ? "[:] Actions   [m] \(cloudMode ? "Local" : "Cloud")   [?] Help"
+            : "[:] Actions  [?] Help"
         let hints: [String]
         if pane == 2 {
             hints =
                 detailText == nil
-                ? ["[j/k] Scroll", "[y] Copy", "[v] \((cloudMode ? cloudRaw : raw) ? "Concise" : "Raw")"]
-                : ["[Enter] Actions", "[Esc] Log", "[y] Copy"]
+                ? ["[v] \((cloudMode ? cloudRaw : raw) ? "Summary" : "Raw")", "[G] Follow", "[y] Copy", "[j/k] Scroll"]
+                : ["[Esc] Back", "[Enter] Actions", "[y] Copy"]
         } else if pane == 1 {
             hints =
                 cloudMode
                 ? ["[Enter] Results", "[a] Files", "[r] Refresh"]
                 : selectedRecord?.phase.active == true
-                    ? ["[x] Stop", "[t] Test"] : ["[Enter] Results", "[r] Run", "[b] Build"]
+                    ? ["[x] Stop", "[r] Run", "[t] Test"] : ["[Enter] Results", "[r] Run", "[b] Build"]
         } else {
-            hints = cloudMode ? ["[Enter] Edit", "[r] Refresh"] : ["[Enter] Edit", "[b] Build", "[t] Test"]
+            hints =
+                cloudMode
+                ? ["[Enter] Choose", "[r] Refresh"] : ["[Enter] Choose", "[b] Build", "[r] Run", "[t] Test"]
         }
         var visible: [String] = []
         for hint in hints where (" " + (visible + [hint, anchors]).joined(separator: "   ")).count <= width {
@@ -124,14 +131,13 @@ extension BuildRecord {
         default: return "FAIL"
         }
     }
-    func activityRow(width: Int) -> String {
-        let prefix =
-            statusLabel.padding(toLength: 7, withPad: " ", startingAt: 0) + " #"
-            + String((id.split(separator: "-").last ?? Substring(id)).suffix(4)) + " "
-        let available = max(3, width - prefix.count - duration.count - 1)
-        return prefix
-            + OutputFormatter.truncate(simulator.name, width: available).padding(
-                toLength: available, withPad: " ", startingAt: 0) + " " + duration
+    var operationLabel: String {
+        switch operation {
+        case .run: "Run"
+        case .test: "Test"
+        case .discoverTests: "Discover tests"
+        default: "Build"
+        }
     }
 }
 

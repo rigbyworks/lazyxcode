@@ -21,9 +21,9 @@ import Testing
         let output = RenderOnce.render(
             WorkspaceView(model: model, live: false).frame(width: width, height: height), width: width,
             environment: ["NO_COLOR": "1"], isStdoutTTY: false)
-        #expect(output.contains("[Local]  Cloud [1]"))
-        #expect(output.contains("Activity [2]"))
-        #expect(output.contains("Output [3]"))
+        #expect(output.contains("[1] Build"))
+        #expect(output.contains("[2] Activity"))
+        #expect(output.contains("[3] Output"))
         #expect(output.contains("Example"))
     }
 }
@@ -145,7 +145,7 @@ func destinationRefreshPreservesOpenPickerSelection(keepSelection: Bool) async t
     for (width, height) in [(44, 10), (74, 23), (120, 36)] {
         let model = sampleModel()
         let layout = WorkspaceLayout(width: width, height: height, pane: 0)
-        #expect(layout.sidebar + layout.outputWidth + 2 == width)
+        #expect(layout.sidebar + layout.outputWidth + 4 == width)
         let output = RenderOnce.render(
             WorkspaceView(model: model, live: false).frame(width: width, height: height), width: width,
             environment: ["NO_COLOR": "1"], isStdoutTTY: false)
@@ -159,7 +159,7 @@ func destinationRefreshPreservesOpenPickerSelection(keepSelection: Bool) async t
                 WorkspaceView(model: model, live: false).frame(width: width, height: height), width: width,
                 environment: ["NO_COLOR": "1"], isStdoutTTY: false)
             #expect(picker.contains("Choose target"))
-            #expect(picker.contains("[Local]  Cloud [1]"))
+            #expect(picker.contains("[1] Build"))
         }
     }
 }
@@ -203,7 +203,7 @@ func destinationRefreshPreservesOpenPickerSelection(keepSelection: Bool) async t
     #expect(model.buildRow == 1)
     model.move(1)
     #expect(model.buildRow == 0)
-    #expect(model.footer(width: 44).contains("[m] Cloud"))
+    #expect(model.footer(width: 44).contains("[?] Help"))
 }
 
 @Test func rawPagesCanDisplayEveryLineAndLiveLimitsAreExplicit() {
@@ -294,4 +294,92 @@ func destinationRefreshPreservesOpenPickerSelection(keepSelection: Bool) async t
 @Test func outputWrappingUsesTerminalCellWidths() {
     #expect(OutputFormatter.wrappedLines("测试文件.swift", width: 4, limit: nil) == ["测试", "文件", ".swi", "ft"])
     #expect(OutputFormatter.wrappedLines("a😀bc", width: 3, limit: nil) == ["a😀", "bc"])
+}
+
+@Test @MainActor func compactWorkspaceKeepsEveryPaneAndCloudSettingReachable() throws {
+    for cloud in [false, true] {
+        for (width, height) in [(44, 10), (60, 15), (80, 10), (120, 30)] {
+            let model = sampleModel()
+            model.cloudMode = cloud
+            model.buildRow = cloud ? 2 : 1
+            model.destinations = [Destination(id: "phone", name: "iPhone 17 Pro Max")]
+            model.destinationID = "phone"
+            for pane in 0..<3 {
+                model.pane = pane
+                let output = RenderOnce.render(
+                    WorkspaceView(model: model, live: false).frame(width: width, height: height), width: width,
+                    environment: ["NO_COLOR": "1"], isStdoutTTY: false)
+                #expect(output.contains("lazyxcode"))
+                #expect(output.contains("[?] Help"))
+                #expect(output.contains("[i] Details"))
+                let rows = output.split(separator: "\n", omittingEmptySubsequences: false)
+                #expect(rows.count <= height + 1)
+                if pane == 0 {
+                    #expect(output.contains(cloud ? "Connection" : "iPhone 17 Pro"))
+                    if !cloud && (width < 80 || height >= 16) {
+                        #expect(output.contains("iPhone 17 Pro Max"))
+                    }
+                } else if pane == 1 {
+                    #expect(output.contains(cloud ? "No Cloud runs" : "No activities yet"))
+                } else {
+                    #expect(output.contains(cloud ? "Press r to connect" : "Ready when you are"))
+                }
+                if width < 80 {
+                    #expect(output.contains("[1] Build"))
+                    #expect(output.contains("[2] Activity"))
+                    #expect(output.contains("[3] Output"))
+                    if pane == 2 { #expect(!output.contains("Scheme:")) }
+                }
+                if let directory = ProcessInfo.processInfo.environment["LAZYXCODE_SNAPSHOT_DIR"] {
+                    let directory = URL(fileURLWithPath: directory)
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    try output.write(
+                        to: directory.appendingPathComponent(
+                            "\(cloud ? "cloud" : "local")-\(width)x\(height)-pane\(pane).txt"), atomically: true,
+                        encoding: .utf8)
+                }
+            }
+        }
+    }
+}
+
+@Test @MainActor func outputViewportMatchesScrollingAtEachLayoutSize() {
+    for (width, height) in [(44, 10), (60, 15), (80, 12), (120, 30)] {
+        let model = sampleModel()
+        model.pane = 2
+        let layout = WorkspaceLayout(width: width, height: height, pane: 2)
+        model.outputWidth = layout.outputWidth
+        model.outputHeight = layout.outputHeight
+        model.raw = true
+        // Use a fixed snapshot to exercise the same wrapping and scroll calculation as live logs.
+        model.pausedOutput = (0..<80).map { "row \($0) " + String(repeating: "x", count: 60) }.joined(separator: "\n")
+        model.follow = false
+        let lines = model.outputLines(width: layout.outputWidth)
+        model.outputOffset = max(0, lines.count - layout.outputHeight)
+        let output = RenderOnce.render(
+            WorkspaceView(model: model, live: false).frame(width: width, height: height), width: width,
+            environment: ["NO_COLOR": "1"], isStdoutTTY: false)
+        #expect(output.contains("Paused"))
+        #expect(output.contains("\(lines.count)/\(lines.count)"))
+        #expect(output.contains("row 79"))
+    }
+}
+
+@Test @MainActor func pickerShowsMatchCountsAndSelectedRowInSmallTerminal() {
+    let model = sampleModel()
+    model.showMenu("Scheme", (0..<20).map { MenuItem("Scheme \($0)") {} })
+    model.menu?.index = 19
+    let view = WorkspaceView(model: model, live: false)
+    func render() -> String {
+        RenderOnce.render(
+            view.frame(width: 44, height: 10), width: 44,
+            environment: ["NO_COLOR": "1"], isStdoutTTY: false)
+    }
+    #expect(render().contains("Scheme 19"))
+    #expect(render().contains("20/20"))
+    _ = view.handle(KeyPress(.character("z")))
+    #expect(render().contains("No matches"))
+    #expect(render().contains("0/0"))
+    _ = view.handle(KeyPress(.backspace))
+    #expect(render().contains("1/20"))
 }
