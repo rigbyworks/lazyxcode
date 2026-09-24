@@ -114,6 +114,27 @@ func destinationRefreshPreservesOpenPickerSelection(keepSelection: Bool) async t
     #expect(model.detailText == nil)
 }
 
+@Test @MainActor func testTargetDiscoveryLeavesInputResponsiveAndCanBeCancelled() async {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let model = WorkspaceModel(containers: [
+        Container(
+            kind: .project, name: "Example.xcodeproj", path: root.appendingPathComponent("Example.xcodeproj").path)
+    ])
+    model.scheme = "Example"
+    model.testMenu()
+    model.menu?.index = 1
+    model.activateMenu()
+    let pending = model.pending
+    #expect(model.loading)
+    #expect(pending != nil)
+    model.cancelPending()
+    await pending?.value
+    #expect(!model.loading)
+    #expect(model.queuedRequests.isEmpty)
+}
+
 @Test func outputStripsTerminalControlSequencesAndBoundsLines() {
     #expect(OutputFormatter.sanitize("\u{1B}[31merror\u{1B}[0m\u{7}") == "error")
     #expect(OutputFormatter.lines(String(repeating: "line\n", count: 3000)).count == 2000)

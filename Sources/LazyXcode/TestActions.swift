@@ -28,14 +28,26 @@ extension WorkspaceModel {
             ])
     }
     func runTestKind(ui: Bool) {
-        do {
-            let targets = try client.testTargets(container, scheme: scheme).filter { $0.isUI == ui }.map(\.name)
+        let client = client
+        let container = container
+        let scheme = scheme
+        load("Finding \(ui ? "UI" : "unit") test targets...") {
+            let lookup = Task.detached(priority: .userInitiated) {
+                try client.testTargets(container, scheme: scheme)
+            }
+            let available = try await withTaskCancellationHandler {
+                try await lookup.value
+            } onCancel: {
+                lookup.cancel()
+            }
+            try Task.checkCancellation()
+            let targets = available.filter { $0.isUI == ui }.map(\.name)
             guard !targets.isEmpty else {
                 throw AppError("No enabled \(ui ? "UI" : "unit") test targets in this scheme")
             }
-            closeMenu()
-            queue(.test, targets: targets, scope: ui ? "UI tests" : "Unit tests")
-        } catch { status = error.localizedDescription }
+            self.closeMenu()
+            self.queue(.test, targets: targets, scope: ui ? "UI tests" : "Unit tests")
+        }
     }
     func openDiscoveredTests(_ record: BuildRecord) {
         do {

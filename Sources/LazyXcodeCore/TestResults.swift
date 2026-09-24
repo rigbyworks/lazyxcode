@@ -7,6 +7,7 @@ public struct TestTarget: Sendable {
 
 extension XcodeClient {
     public func testTargets(_ container: Container, scheme: String) throws -> [TestTarget] {
+        try Task.checkCancellation()
         let root = URL(fileURLWithPath: container.path).deletingLastPathComponent()
         let direct = URL(fileURLWithPath: container.path).appendingPathComponent(
             "xcshareddata/xcschemes/\(scheme).xcscheme")
@@ -15,6 +16,7 @@ extension XcodeClient {
         var schemes: [URL] = []
         var projects: [URL] = []
         while let url = files?.nextObject() as? URL {
+            try Task.checkCancellation()
             if ["DerivedData", "SourcePackages", "Pods"].contains(url.lastPathComponent) {
                 files?.skipDescendants()
                 continue
@@ -53,6 +55,7 @@ extension XcodeClient {
         }
         var kinds: [String: Bool] = [:]
         for project in projects {
+            try Task.checkCancellation()
             if let plist = try? PropertyListSerialization.propertyList(from: Data(contentsOf: project), format: nil)
                 as? [String: Any],
                 let objects = plist["objects"] as? [String: [String: Any]]

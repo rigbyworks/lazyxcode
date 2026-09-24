@@ -19,6 +19,36 @@ import ZIPFoundation
     #expect(try Data(contentsOf: result.appendingPathComponent("data")) == contents)
 }
 
+@Test func resultArchiveReusesValidatedExtraction() throws {
+    let fixture = try TemporaryProject()
+    defer { fixture.remove() }
+    let url = fixture.root.appendingPathComponent("results.zip")
+    let archive = try Archive(url: url, accessMode: .create)
+    let contents = Data("test result".utf8)
+    try archive.addEntry(with: "Tests.xcresult/data", type: .file, uncompressedSize: Int64(contents.count)) {
+        position, count in
+        contents.subdata(in: Int(position)..<min(contents.count, Int(position) + count))
+    }
+    let first = try ResultArchive.expand(url)
+    let firstSize = try #require(FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int)
+    let second = try ResultArchive.expand(url)
+    #expect(first == second)
+    #expect(try Data(contentsOf: second.appendingPathComponent("data")) == contents)
+
+    try FileManager.default.removeItem(at: url)
+    let updated = Data("updated test result contents".utf8)
+    let replacement = try Archive(url: url, accessMode: .create)
+    try replacement.addEntry(with: "Tests.xcresult/data", type: .file, uncompressedSize: Int64(updated.count)) {
+        position, count in
+        updated.subdata(in: Int(position)..<min(updated.count, Int(position) + count))
+    }
+    let updatedSize = try #require(FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int)
+    #expect(updatedSize != firstSize)
+    let refreshed = try ResultArchive.expand(url)
+    #expect(refreshed == first)
+    #expect(try Data(contentsOf: refreshed.appendingPathComponent("data")) == updated)
+}
+
 @Test(arguments: ["../escape", "/absolute", "Tests.xcresult/../../escape", "Tests.xcresult\\escape"])
 func resultArchiveRejectsUnsafePaths(_ path: String) throws {
     let fixture = try TemporaryProject()

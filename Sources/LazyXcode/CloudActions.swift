@@ -216,35 +216,31 @@ extension WorkspaceModel {
         let artifacts = details.artifacts.filter(\.isLog)
         load("Downloading build logs...") {
             var text = ""
+            var remainingFiles = 64
+            var remainingBytes = 256 * 1024
+            var truncated = false
             for artifact in artifacts {
+                if remainingFiles == 0 || remainingBytes == 0 {
+                    truncated = true
+                    break
+                }
                 let path = try store.artifactURL(run: run.id, artifact: artifact.id, name: artifact.name)
                 let file = try await cloud.download(artifact, for: run, page: self.cloudPage, to: path)
                 try Task.checkCancellation()
-                var files = [file]
+                var source = file
                 if file.pathExtension.lowercased() == "zip" {
-                    let directory = try await ResultArchive.expandAsync(file, requireResult: false)
+                    source = try await ResultArchive.expandAsync(file, requireResult: false)
                     try Task.checkCancellation()
-                    files =
-                        FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey])?
-                        .allObjects.compactMap { $0 as? URL }
-                        .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }.sorted
-                    { $0.path < $1.path } ?? []
                 }
-                for file in files {
-                    let handle = try FileHandle(forReadingFrom: file)
-                    defer { try? handle.close() }
-                    let length = try handle.seekToEnd()
-                    if length > 256 * 1024 {
-                        try handle.seek(toOffset: length - 256 * 1024)
-                    } else {
-                        try handle.seek(toOffset: 0)
-                    }
-                    let data = try handle.read(upToCount: 256 * 1024) ?? Data()
-                    text +=
-                        "\n\(file.lastPathComponent)\n\(String(data: data, encoding: .utf8) ?? "Binary artifact retained at \(file.path)")\n"
-                    if text.utf8.count > 256 * 1024 { text = String(text.suffix(128 * 1024)) }
-                }
+                let excerpt = try await CloudLogReader.read(
+                    source, maxFiles: remainingFiles, maxBytes: remainingBytes)
+                try Task.checkCancellation()
+                remainingFiles -= excerpt.filesRead
+                remainingBytes -= excerpt.bytesRead
+                truncated = truncated || excerpt.truncated
+                text += excerpt.text
             }
+            if truncated { text += "\n\nEarlier log content omitted. Open the downloaded artifact for complete logs." }
             self.cloudLogs[run.id] = text.isEmpty ? "No log artifacts available" : text
         }
     }
