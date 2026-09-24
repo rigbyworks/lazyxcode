@@ -27,6 +27,7 @@ smoke:
 terminal-smoke:
 	swift build
 	python3 scripts/test-terminal.py "$$(swift build --show-bin-path)/lazyxcode"
+	python3 scripts/test-terminal.py "$$(swift build --show-bin-path)/lazyxcode" 70 23
 
 clean:
 	swift package clean

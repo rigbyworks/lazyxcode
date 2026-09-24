@@ -16,6 +16,59 @@ struct WorkspaceLayout {
     var outputHeight: Int { max(1, contentHeight - 2) }
 }
 
+// Capture the Build pane's observable reads at the workspace boundary. Passing
+// values keeps retained child views sensitive to selection and focus changes.
+struct BuildPaneState: Equatable {
+    struct Setting: Equatable {
+        let label: String
+        let value: String
+        var busy = false
+    }
+    let cloudMode: Bool
+    let focused: Bool
+    let selectedRow: Int
+    let settings: [Setting]
+    let destinationDetail: String
+    let cacheDetail: String
+
+    @MainActor init(model: WorkspaceModel) {
+        cloudMode = model.cloudMode
+        focused = model.pane == 0
+        selectedRow = model.buildRow
+        if cloudMode {
+            settings = [
+                Setting(
+                    label: "Product",
+                    value: model.cloudProducts.first { $0.id == model.cloudProduct }?.name ?? "Choose product…"),
+                Setting(
+                    label: "Workflow",
+                    value: model.cloudWorkflows.first { $0.id == model.cloudWorkflow }?.name ?? "All workflows"),
+                Setting(label: "Connection", value: model.cloudRefreshing ? "Refreshing…" : "Details"),
+            ]
+            destinationDetail = ""
+            cacheDetail = ""
+        } else {
+            settings = [
+                Setting(
+                    label: "Scheme",
+                    value: model.scheme.isEmpty
+                        ? (model.discovery != nil ? "Loading…" : "Choose a scheme…") : model.scheme,
+                    busy: model.discovery != nil),
+                Setting(
+                    label: "Target",
+                    value: model.destination?.name
+                        ?? (model.destinationRefresh != nil ? "Loading…" : "Choose a destination…"),
+                    busy: model.destinationRefresh != nil),
+            ]
+            destinationDetail =
+                model.destination.map { [$0.platform, $0.os].filter { !$0.isEmpty }.joined(separator: " · ") }
+                ?? "[R] Refresh destinations"
+            cacheDetail =
+                "Cache \(ByteCountFormatter.string(fromByteCount: model.cacheBytes, countStyle: .file)) · [c] Clear"
+        }
+    }
+}
+
 extension WorkspaceModel {
     var hasActiveActivities: Bool {
         managers.values.contains(where: \.active) || manager?.active == true || !queuedRequests.isEmpty

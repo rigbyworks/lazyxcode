@@ -84,18 +84,22 @@ class TerminalScreen:
 
 repository = pathlib.Path(__file__).resolve().parent.parent
 executable = pathlib.Path(sys.argv[1]).resolve()
+width, height = (map(int, sys.argv[2:4]) if len(sys.argv) == 4 else (120, 30))
 
 with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
     subprocess.run(
         [sys.executable, str(repository / "scripts/create-smoke-project.py"), directory],
         check=True,
     )
+    schemes = pathlib.Path(directory) / "Smoke.xcodeproj/xcshareddata/xcschemes"
+    (schemes / "SmokeAlt.xcscheme").write_text((schemes / "Smoke.xcscheme").read_text())
     master, slave = pty.openpty()
-    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
     original = termios.tcgetattr(slave)
     environment = dict(
         os.environ,
         TERM="xterm-256color",
+        LANG="en_US.UTF-8",
         XDG_STATE_HOME=directory + "/state",
         XDG_CACHE_HOME=directory + "/cache",
     )
@@ -107,12 +111,12 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         stderr=slave, env=environment, start_new_session=True,
     )
     transcript = bytearray()
-    screen = TerminalScreen(120, 30)
+    screen = TerminalScreen(width, height)
 
-    def wait_for(text, offset=0, timeout=30):
+    def wait_until(predicate, description, offset=0, timeout=30):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if len(transcript) > offset and text.decode() in screen.text():
+            if len(transcript) > offset and predicate():
                 return
             ready, _, _ = select.select([master], [], [], 0.1)
             if ready:
@@ -124,7 +128,17 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
                 screen.feed(chunk)
             if process.poll() is not None:
                 break
-        raise AssertionError(f"Missing {text!r}:\n{screen.text()}")
+        raise AssertionError(f"Missing {description}:\n{screen.text()}")
+
+    def wait_for(text, offset=0, timeout=30):
+        wait_until(lambda: text.decode() in screen.text(), repr(text), offset, timeout)
+
+    def build_value(label):
+        rows = screen.text().splitlines()
+        for index, row in enumerate(rows[:-1]):
+            if row.split("│")[1:2] and row.split("│")[1].strip() == label:
+                return rows[index + 1].split("│")[1].strip()
+        return ""
 
     def send(keys, expect):
         offset = len(transcript)
@@ -133,9 +147,44 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
 
     try:
         wait_for(b"[1] Build")
+        os.write(master, b"j")
+        wait_until(lambda: build_value("Target").startswith("› "), "target focus during startup", timeout=5)
+        os.write(master, b"k")
+        wait_until(lambda: build_value("Scheme").startswith("› "), "scheme focus during startup", timeout=5)
+        wait_until(lambda: "".join(screen.rows[-2]).strip().startswith("Ready"), "discovery completion")
+        # Keep one live renderer: fresh snapshots cannot catch stale view reuse.
+        for scheme in ["SmokeAlt", "Smoke", "SmokeAlt"]:
+            send(b"\r", b"Type to filter")
+            send(scheme.encode(), scheme.encode())
+            send(b"\r", b"Actions")
+            wait_until(lambda: build_value("Scheme") == "› " + scheme, "updated scheme in Build", timeout=5)
+            os.write(master, b"j")
+            wait_until(lambda: build_value("Target").startswith("› ") and build_value("Scheme") == scheme,
+                       "focus moving from Scheme to Target without a pane switch", timeout=5)
+            os.write(master, b"k")
+            wait_until(lambda: build_value("Scheme") == "› " + scheme and not build_value("Target").startswith("› "),
+                       "focus moving from Target to Scheme without a pane switch", timeout=5)
+        os.write(master, b"j")
+        wait_until(lambda: build_value("Target").startswith("› "), "target focus", timeout=5)
         # Exercise the target picker and its asynchronous refresh before menus.
-        send(b"j\r", b"Destination")
-        send(b"\x1b", b"Actions")
+        send(b"\r", b"Destination")
+        send(b"Simulator", "/ Simulator".encode())
+        def selected_destination_name():
+            for row in screen.text().splitlines():
+                menu_width = min(76, width - 2)
+                left = (width - menu_width) // 2
+                menu_row = row[left:left + menu_width]
+                if menu_row.startswith("│") and menu_row[1:-1].strip().startswith("› "):
+                    return menu_row[1:-1].strip()[2:].split("  ")[0]
+            return ""
+        wait_until(lambda: bool(selected_destination_name()), "a simulator in the picker")
+        chosen_destination = selected_destination_name()
+        send(b"\r", b"Actions")
+        wait_until(lambda: build_value("Target").startswith("› ")
+                   and chosen_destination.startswith(build_value("Target")[2:].rstrip("…")),
+                   f"selected simulator {chosen_destination!r} in Build without a pane switch", timeout=5)
+        os.write(master, b"k")
+        wait_until(lambda: build_value("Scheme") == "› SmokeAlt", "scheme focus after choosing a simulator", timeout=5)
         send(b"c", b"Keep cache")
         send(b"\x1b", b"Actions")
         send(b":", b"Actions")
@@ -152,8 +201,8 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         send(b"3", b"Ready when you are")
         send(b":", b"Type to filter")
         send(b"\x1b", b"Ready when you are")
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
-        screen = TerminalScreen(120, 30)
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", height, width, 0, 0))
+        screen = TerminalScreen(width, height)
         os.kill(process.pid, signal.SIGWINCH)
         send(b"m", b"Cloud")
         # Let the missing-credentials message render before quitting.
@@ -168,7 +217,7 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         process.wait(timeout=1)
         assert process.returncode == 0, f"Exit status {process.returncode}"
         assert termios.tcgetattr(slave) == original, "Terminal settings were not restored"
-        print("PASS: startup, target picker, cache confirmation, action search, help, compact resize and navigation, Cloud mode, quit, terminal restoration")
+        print("PASS: startup focus, scheme/target selection and focus redraws, cache confirmation, action search, help, compact resize and navigation, Cloud mode, quit, terminal restoration")
     finally:
         if process.poll() is None:
             process.terminate()

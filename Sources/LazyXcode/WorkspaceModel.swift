@@ -627,27 +627,30 @@ final class WorkspaceModel {
         }
     }
     func activate() {
-        if detailText != nil && !detailActions.isEmpty {
+        if pane == 2, detailText != nil && !detailActions.isEmpty {
             showMenu("Result actions", detailActions)
-            return
-        }
-        if pane == 0 {
-            if cloudMode {
-                openCloudSetting()
-                return
-            }
-            switch buildRow {
-            case 0:
-                showMenu("Scheme", schemeItems(), selectedID: scheme)
-            case 1:
-                refreshDestinations()
-                showMenu("Destination", destinationItems(), selectedID: destinationID)
-            default: toggleCoverage()
-            }
+        } else if pane == 0 {
+            openBuildSetting(buildRow)
         } else if cloudMode {
             openArtifacts(resultsOnly: true)
         } else if let record = selectedRecord {
             openTestActivity(record)
+        }
+    }
+    func openBuildSetting(_ row: Int) {
+        pane = 0
+        buildRow = row
+        if cloudMode {
+            openCloudSetting()
+            return
+        }
+        switch row {
+        case 0:
+            showMenu("Scheme", schemeItems(), selectedID: scheme)
+        case 1:
+            refreshDestinations()
+            showMenu("Destination", destinationItems(), selectedID: destinationID)
+        default: toggleCoverage()
         }
     }
     func toggleCoverage() {

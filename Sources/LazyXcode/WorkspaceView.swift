@@ -19,7 +19,7 @@ struct WorkspaceView: View {
                         Text("Terminal is too small. Current: \(width)×\(height). Required: 44×10.")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        WorkspacePanes(model: model, layout: layout)
+                        WorkspacePanes(model: model, build: BuildPaneState(model: model), layout: layout)
                     }
                     if let menu = model.menu {
                         MenuView(
@@ -219,11 +219,12 @@ private struct StatusView: View {
 
 private struct WorkspacePanes: View {
     let model: WorkspaceModel
+    let build: BuildPaneState
     let layout: WorkspaceLayout
     var body: some View {
         if layout.compact {
             if model.pane == 0 {
-                BuildPane(model: model, width: layout.width, height: layout.contentHeight)
+                BuildPane(state: build, width: layout.width, height: layout.contentHeight)
             } else if model.pane == 1 {
                 ActivityPane(model: model, width: layout.width, height: layout.contentHeight)
             } else {
@@ -232,7 +233,7 @@ private struct WorkspacePanes: View {
         } else {
             HStack(alignment: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    BuildPane(model: model, width: layout.sidebar, height: layout.buildHeight)
+                    BuildPane(state: build, width: layout.sidebar, height: layout.buildHeight)
                     ActivityPane(model: model, width: layout.sidebar, height: layout.contentHeight - layout.buildHeight)
                 }.frame(width: layout.sidebar, height: layout.contentHeight)
                 OutputPane(model: model, width: layout.width - layout.sidebar, height: layout.contentHeight)
@@ -272,65 +273,43 @@ private struct Pane<Content: View>: View {
 }
 
 private struct BuildPane: View {
-    let model: WorkspaceModel
+    let state: BuildPaneState
     let width: Int
     let height: Int
-    var expanded: Bool { height >= (model.cloudMode ? 10 : 8) }
+    var expanded: Bool { height >= (state.cloudMode ? 10 : 8) }
     var body: some View {
         Pane(
-            title: model.cloudMode ? "[1] Build · read only" : "[1] Build", focused: model.pane == 0, width: width,
-            height: height
+            title: state.cloudMode ? "[1] Build · read only" : "[1] Build",
+            focused: state.focused, width: width, height: height
         ) {
-            if model.cloudMode {
-                setting(
-                    "Product",
-                    value: model.cloudProducts.first { $0.id == model.cloudProduct }?.name ?? "Choose product…", row: 0)
-                setting(
-                    "Workflow",
-                    value: model.cloudWorkflows.first { $0.id == model.cloudWorkflow }?.name ?? "All workflows", row: 1)
-                if height >= 5 {
-                    setting("Connection", value: model.cloudRefreshing ? "Refreshing…" : "Details", row: 2)
+            ForEach(Array(state.settings.enumerated()), id: \.offset) { index, setting in
+                if index < 2 || height >= 5 {
+                    settingRow(setting, selected: state.focused && state.selectedRow == index)
                 }
+            }
+            if state.cloudMode {
                 if height >= 10 { Text("Read only · [r] Refresh").foregroundStyle(.muted).lineLimit(1) }
             } else {
-                setting(
-                    "Scheme",
-                    value: model.scheme.isEmpty
-                        ? (model.discovery != nil ? "Loading…" : "Choose a scheme…") : model.scheme,
-                    row: 0, busy: model.discovery != nil)
-                setting(
-                    "Target",
-                    value: model.destination?.name
-                        ?? (model.destinationRefresh != nil ? "Loading…" : "Choose a destination…"),
-                    row: 1, busy: model.destinationRefresh != nil)
                 if height >= 8 {
-                    Text(
-                        model.destination.map { [$0.platform, $0.os].filter { !$0.isEmpty }.joined(separator: " · ") }
-                            ?? "[R] Refresh destinations"
-                    )
-                    .foregroundStyle(.muted).lineLimit(1)
+                    Text(state.destinationDetail).foregroundStyle(.muted).lineLimit(1)
                 }
                 if height >= 10 {
                     Text("")
                     Text("[b] Build  [r] Run  [t] Test").foregroundStyle(.info).lineLimit(1)
-                    Text(
-                        "Cache \(ByteCountFormatter.string(fromByteCount: model.cacheBytes, countStyle: .file)) · [c] Clear"
-                    )
-                    .foregroundStyle(.muted).lineLimit(1)
+                    Text(state.cacheDetail).foregroundStyle(.muted).lineLimit(1)
                 }
             }
         }
     }
-    private func setting(_ label: String, value: String, row: Int, busy: Bool = false) -> some View {
-        let selected = model.pane == 0 && model.buildRow == row
-        return VStack(alignment: .leading, spacing: 0) {
+    private func settingRow(_ setting: BuildPaneState.Setting, selected: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             if expanded {
-                Text(label).foregroundStyle(.muted).lineLimit(1)
+                Text(setting.label).foregroundStyle(.muted).lineLimit(1)
             }
             HStack(spacing: 0) {
                 Text(selected ? "› " : "  ")
-                if busy { DiscoverySpinner().padding(.trailing, 1) }
-                Text((expanded ? "" : label + ": ") + value).lineLimit(1)
+                if setting.busy { DiscoverySpinner().padding(.trailing, 1) }
+                Text((expanded ? "" : setting.label + ": ") + setting.value).lineLimit(1)
             }
             .foregroundStyle(selected ? SemanticShapeStyle.info : SemanticShapeStyle.foreground)
             .frame(width: max(1, width - 4), alignment: .leading)
@@ -604,14 +583,8 @@ extension WorkspaceModel {
                     self.closeMenu()
                     self.reload()
                 },
-                MenuItem("Choose scheme") {
-                    self.buildRow = 0
-                    self.activate()
-                },
-                MenuItem("Choose target") {
-                    self.buildRow = 1
-                    self.activate()
-                },
+                MenuItem("Choose scheme") { self.openBuildSetting(0) },
+                MenuItem("Choose target") { self.openBuildSetting(1) },
                 MenuItem("Choose project or workspace") { self.openContainers() },
             ]
         }

@@ -383,3 +383,44 @@ func destinationRefreshPreservesOpenPickerSelection(keepSelection: Bool) async t
     _ = view.handle(KeyPress(.backspace))
     #expect(render().contains("1/20"))
 }
+
+@Test @MainActor func buildPaneUpdatesAcrossRetainedFrames() {
+    let model = sampleModel()
+    let view = WorkspaceView(model: model, live: false).frame(width: 120, height: 30)
+    let renderer = DefaultRenderer()
+    func frame() -> String {
+        renderer.render(view, proposal: .init(width: 120, height: 30)).rasterSurface.lines.joined(separator: "\n")
+    }
+    #expect(frame().contains("› Example"))
+    for index in 0..<5 {
+        model.status = "Refresh \(index)"
+        _ = frame()
+        model.buildRow = 1
+        #expect(!frame().contains("› Example"))
+        model.scheme = "Updated \(index)"
+        #expect(frame().contains("Updated \(index)"))
+        model.buildRow = 0
+        #expect(frame().contains("› Updated \(index)"))
+    }
+}
+
+@Test(arguments: [0, 1, 2]) @MainActor
+func settingActionsOpenTheirPickerFromEveryPane(pane: Int) async {
+    let model = sampleModel()
+    model.schemes = ["Example"]
+    for (action, title, row) in [("Choose scheme", "Scheme", 0), ("Choose target", "Destination", 1)] {
+        model.pane = pane
+        model.detailText = "Test results"
+        model.detailActions = [MenuItem("Result action") {}]
+        model.actionMenu()
+        model.menu?.query = action
+        model.activateMenu()
+        #expect(model.menu?.title == title)
+        #expect(model.pane == 0)
+        #expect(model.buildRow == row)
+        model.closeMenu()
+        _ = WorkspaceView(model: model, live: false).handle(KeyPress(.return))
+        #expect(model.menu?.title == title)
+    }
+    await model.shutdown()
+}
