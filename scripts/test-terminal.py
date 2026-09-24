@@ -186,8 +186,9 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         os.write(master, b"k")
         wait_until(lambda: build_value("Scheme") == "› SmokeAlt", "scheme focus after choosing a simulator", timeout=5)
         send(b"c", b"Keep cache")
-        send(b"\x1b", b"Actions")
-        send(b":", b"Actions")
+        os.write(master, b"\x1b")
+        wait_until(lambda: "Clear build cache?" not in screen.text(), "cache dialog to close")
+        send(b":", b"Type to filter")
         send(b"help", b"help")
         send(b"\r", b"Navigation")
         # The renderer may reuse unchanged cells in the title. Check new body text.

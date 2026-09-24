@@ -29,9 +29,9 @@ jobs:
       LAZYXCODE_SMOKE_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-18-4
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
+      - uses: swift-actions/setup-swift@v3
         with:
-          swift-version: '6.4'
+          swift-version: '6.4.0'
       - name: Install the runtime matching Xcode 16.3
         run: |
           sudo xcode-select --switch "$DEVELOPER_DIR"

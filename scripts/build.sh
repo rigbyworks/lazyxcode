@@ -16,6 +16,6 @@ pathlib.Path("Sources/LazyXcode/BuildVersion.swift").write_text(
     'enum BuildVersion {\n    static let value = "' + version + '"\n}\n'
 )
 PY
-swift build -c release --product lazyxcode
-binary_dir="$(swift build -c release --show-bin-path)"
+swift build --disable-sandbox -c release --product lazyxcode
+binary_dir="$(swift build --disable-sandbox -c release --show-bin-path)"
 install -m 755 "$binary_dir/lazyxcode" lazyxcode
