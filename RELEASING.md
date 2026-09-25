@@ -50,10 +50,10 @@ This creates a fixture project and an iPhone 16 simulator, runs the real build, 
 
 PRs and pushes to `main` run only `make check` and `make terminal-smoke`. The sole required PR job is `check`; it covers formatting, unit tests, a debug build, CLI behavior, and terminal UI interactions. New pushes cancel older CI runs for the same PR or branch.
 
-Release builds, Xcode integration, and Homebrew lifecycle checks run on releases or explicit manual requests. To run the full checks without publishing anything, select **CI → Run workflow**, choose the branch, and leave **full** enabled, or run:
+Release builds, Xcode integration, and Homebrew lifecycle checks live in the separate **Full validation** workflow, so they do not appear as skipped PR checks. Releases call this workflow before publishing. To run it without publishing anything, select **Full validation → Run workflow**, choose the branch, or run:
 
 ```sh
-gh workflow run ci.yml --ref your-branch -F full=true
+gh workflow run full-validation.yml --ref your-branch
 ```
 
 The full checks run `bash scripts/test-homebrew.sh` on a clean macOS host. It packages the checked-out commit in a temporary tap, checks install/reinstall, upgrades between two local fixture versions, and verifies uninstall preserves state. It does not publish test versions. Homebrew requires Command Line Tools compatible with the host macOS even when full Xcode is installed.

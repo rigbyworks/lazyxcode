@@ -32,11 +32,10 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   validate:
     needs: prepare
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/full-validation.yml
     with:
       ref: ${{ needs.prepare.outputs.sha }}
       version: ${{ github.event.release.tag_name || inputs.tag }}
-      full: true
   publish:
     needs: [prepare, validate]
     runs-on: ubuntu-latest
