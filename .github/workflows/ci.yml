@@ -20,7 +20,7 @@ jobs:
           cd "$RUNNER_TEMP"
           "$executable" --help
           test "$("$executable" --version)" = "lazyxcode ci"
-  simulator-smoke:
+  xcode-integration:
     runs-on: macos-15
     timeout-minutes: 40
     env:
