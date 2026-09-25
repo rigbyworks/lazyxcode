@@ -5,6 +5,7 @@ import Testing
 
 @Test(.enabled(if: ProcessInfo.processInfo.environment["LAZYXCODE_RELEASE_SMOKE"] == "1"), .timeLimit(.minutes(20)))
 func releaseSmoke() async throws {
+    print("[xcode-integration] Creating disposable project and simulator")
     let fixture = try TemporaryProject()
     defer { fixture.remove() }
     let runner = CommandRunner()
@@ -44,8 +45,10 @@ private func exerciseSimulator(id: String, root: URL, client: XcodeClient) async
         container: container, scheme: "Smoke", destination: target, operation: .build,
         derivedData: root.appendingPathComponent("DerivedData").path,
         logPath: root.appendingPathComponent("smoke.log").path)
+    print("[xcode-integration] Building sample app")
     try await client.build(record, log: log)
     let product = try await client.product(record)
+    print("[xcode-integration] Booting simulator and launching sample app")
     try await client.boot(target)
     try await client.install(product, on: target)
     let launch = Task { try await client.launch(product, on: target, log: log) }
@@ -55,17 +58,24 @@ private func exerciseSimulator(id: String, root: URL, client: XcodeClient) async
     }
     launch.cancel()
     _ = await launch.result
-    #expect(log.snapshot().text.contains("LAZYXCODE_SMOKE_READY"))
+    try #require(log.snapshot().text.contains("LAZYXCODE_SMOKE_READY"))
+    // Xcode 16.3 can retain a deleted test-host bundle path when replacing an installed app.
+    // Remove this disposable app between phases so each installs a fresh host.
+    try await client.runner.run("xcrun", ["simctl", "uninstall", id, product.bundleID])
+    print("[xcode-integration] Enumerating tests")
     record.operation = .discoverTests
     record.enumerationPath = root.appendingPathComponent("tests.json").path
     try await client.build(record, log: log)
     let enumerated = try XcodeClient.enumeratedTests(Data(contentsOf: URL(fileURLWithPath: record.enumerationPath!)))
     #expect(!enumerated.isEmpty)
+    try await client.runner.run("xcrun", ["simctl", "uninstall", id, product.bundleID])
+    print("[xcode-integration] Running XCTest with coverage")
     record.operation = .test
     record.enumerationPath = nil
     record.resultBundlePath = root.appendingPathComponent("Tests.xcresult").path
     record.coverage = true
     try await client.build(record, log: log)
+    print("[xcode-integration] Reading test results and coverage")
     let tests = try await client.testResults(record.resultBundlePath!)
     #expect(tests.count == 1)
     #expect(tests.first?.result == "Passed")
@@ -74,4 +84,5 @@ private func exerciseSimulator(id: String, root: URL, client: XcodeClient) async
     }
     let coverage = try await client.coverage(record.resultBundlePath!)
     #expect(!coverage["targets"].array.isEmpty)
+    print("[xcode-integration] Build, launch, enumeration, tests, results, and coverage passed")
 }
