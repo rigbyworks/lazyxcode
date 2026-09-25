@@ -21,7 +21,7 @@ Releases are tagged source distributions. The Homebrew formula builds the Swift 
    gh release create v0.1.0 --verify-tag --title 'lazyxcode v0.1.0' --notes-file release-notes.md
    ```
 
-5. The Release workflow validates the tag, reruns checks, computes the source archive checksum, and opens a PR in the tap. Review the formula URL, checksum, and version, then merge after Package checks pass. No auto-merge is enabled.
+5. The Release workflow validates the tag and runs the full checks against that exact commit: unit and terminal UI tests, release build, Xcode integration, and Homebrew install/reinstall/upgrade. Only after they pass does it compute the source archive checksum and open a PR in the tap. Review the formula URL, checksum, and version, then merge after Package checks pass. No auto-merge is enabled.
 6. On a clean Apple Silicon Mac, run `brew install rigbyworks/tap/lazyxcode`, `lazyxcode --version`, and `brew test rigbyworks/tap/lazyxcode`.
 
 Use `brew update && brew upgrade lazyxcode` to verify subsequent releases. Uninstalling with `brew uninstall lazyxcode` must preserve preferences, history, and caches.
@@ -46,9 +46,17 @@ The executable and all new state/cache paths use `lazyxcode`. Cloud credentials 
 LAZYXCODE_RELEASE_SMOKE=1 swift test --filter releaseSmoke
 ```
 
-This creates a fixture project and an iPhone 16 simulator, runs the real build, install, attached launch, test enumeration, XCTest, result-inspection, and coverage commands, then deletes the simulator. An iOS runtime must already be installed. The simulator CI job runs it with Xcode 16.3 and a separate Swift 6.4 toolchain to exercise the minimum supported version and legacy Simulator. Run it locally with Xcode 27 to cover Device Hub as well.
+This creates a fixture project and an iPhone 16 simulator, runs the real build, install, attached launch, test enumeration, XCTest, result-inspection, and coverage commands, then deletes the simulator. An iOS runtime must already be installed. The `xcode-integration` job runs it with Xcode 16.3 and a separate Swift 6.4 toolchain to exercise the minimum supported version and legacy Simulator. Run it locally with Xcode 27 to cover Device Hub as well.
 
-CI also runs `bash scripts/test-homebrew.sh` on a clean macOS host. It packages the current commit in a temporary tap, checks install/reinstall, upgrades between two local fixture versions, and verifies uninstall preserves state. It does not publish test versions. Homebrew requires Command Line Tools compatible with the host macOS even when full Xcode is installed.
+PRs and pushes to `main` run only `make check` and `make terminal-smoke`. The sole required PR job is `check`; it covers formatting, unit tests, a debug build, CLI behavior, and terminal UI interactions. New pushes cancel older CI runs for the same PR or branch.
+
+Release builds, Xcode integration, and Homebrew lifecycle checks run on releases or explicit manual requests. To run the full checks without publishing anything, select **CI → Run workflow**, choose the branch, and leave **full** enabled, or run:
+
+```sh
+gh workflow run ci.yml --ref your-branch -F full=true
+```
+
+The full checks run `bash scripts/test-homebrew.sh` on a clean macOS host. It packages the checked-out commit in a temporary tap, checks install/reinstall, upgrades between two local fixture versions, and verifies uninstall preserves state. It does not publish test versions. Homebrew requires Command Line Tools compatible with the host macOS even when full Xcode is installed.
 
 ## Swift rewrite
 

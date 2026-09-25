@@ -10,9 +10,11 @@ on:
 permissions:
   contents: read
 jobs:
-  check:
+  prepare:
     if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
-    runs-on: xcode-27
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
@@ -24,11 +26,26 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
       - name: Verify released commit belongs to main
-        run: git merge-base --is-ancestor HEAD origin/main
-      - run: swift --version
-      - run: make check
-      - run: make build VERSION="$RELEASE_TAG"
-      - run: test "$(./lazyxcode --version)" = "lazyxcode $RELEASE_TAG"
+        id: commit
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  validate:
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.sha }}
+      version: ${{ github.event.release.tag_name || inputs.tag }}
+      full: true
+  publish:
+    needs: [prepare, validate]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
       - name: Open tap update PR
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

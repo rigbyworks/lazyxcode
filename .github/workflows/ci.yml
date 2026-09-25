@@ -3,24 +3,52 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Include release build, Xcode integration, and Homebrew lifecycle checks
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      version:
+        type: string
+        default: ci
+      full:
+        type: boolean
+        default: false
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 jobs:
   check:
     runs-on: xcode-27
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ inputs.version || 'ci' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - run: swift --version
       - run: make check
       - run: make terminal-smoke
-      - run: make build VERSION=ci
+      - if: inputs.full
+        run: make build
       - name: Check command-line interface without a project
+        if: inputs.full
         run: |
           executable="$PWD/lazyxcode"
           cd "$RUNNER_TEMP"
           "$executable" --help
-          test "$("$executable" --version)" = "lazyxcode ci"
+          test "$("$executable" --version)" = "lazyxcode $VERSION"
   xcode-integration:
+    if: inputs.full
     runs-on: macos-15
     timeout-minutes: 40
     env:
@@ -29,6 +57,8 @@ jobs:
       LAZYXCODE_SMOKE_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-18-4
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: swift-actions/setup-swift@v3
         with:
           swift-version: '6.4.0'
@@ -40,8 +70,11 @@ jobs:
           xcodebuild -downloadPlatform iOS -buildVersion 18.4
       - run: swift test --filter releaseSmoke
   package:
+    if: inputs.full
     runs-on: xcode-27
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - run: bash scripts/test-homebrew.sh
