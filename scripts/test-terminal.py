@@ -2,6 +2,7 @@
 """Exercise the real Swift-TUI runtime with isolated state in a disposable PTY."""
 import codecs
 import fcntl
+import json
 import os
 import pathlib
 import pty
@@ -14,6 +15,7 @@ import tempfile
 import termios
 import time
 import unicodedata
+import uuid
 
 class TerminalScreen:
     """Decode the cursor/erase operations emitted by the real terminal renderer."""
@@ -112,6 +114,7 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
     )
     transcript = bytearray()
     screen = TerminalScreen(width, height)
+    simulator_name = "lazyxcode QA " + uuid.uuid4().hex[:8] if os.environ.get("LAZYXCODE_DEVICE_SMOKE") == "1" else None
 
     def wait_until(predicate, description, offset=0, timeout=30):
         deadline = time.monotonic() + timeout
@@ -188,6 +191,24 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         send(b"c", b"Keep cache")
         os.write(master, b"\x1b")
         wait_until(lambda: "Clear build cache?" not in screen.text(), "cache dialog to close")
+        if simulator_name:
+            send(b"4", b"[n] New simulator")
+            send(b"n", b"New simulator")
+            send(b"iOS", b"/ iOS")
+            send(b"\r", b"Device model")
+            send(b"iPhone", b"/ iPhone")
+            send(b"\r", b"Name:")
+            send(b"\x15" + simulator_name.encode(), simulator_name.encode())
+            os.write(master, b"\r")
+            wait_until(lambda: "New simulator · Name" not in screen.text()
+                       and "\u203a " + simulator_name in screen.text(), "created simulator selected", timeout=60)
+            send(b"1j\r", b"Destination")
+            send(simulator_name.encode(), ("/ " + simulator_name).encode())
+            wait_until(lambda: selected_destination_name() == simulator_name,
+                       "created simulator available as a build target", timeout=60)
+            os.write(master, b"\x1b")
+            wait_until(lambda: "Destination" not in screen.text(), "target picker to close")
+            print("PASS: simulator created through Devices and found in Target picker", flush=True)
         send(b":", b"Type to filter")
         send(b"help", b"help")
         send(b"\r", b"Navigation")
@@ -199,6 +220,11 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         os.kill(process.pid, signal.SIGWINCH)
         send(b"1", b"Scheme")
         send(b"2", b"No activities yet")
+        send(b"3", b"Ready when you are")
+        send(b"4", b"[n] New simulator")
+        send(b"n", b"New simulator")
+        os.write(master, b"\x1b")
+        wait_until(lambda: "New simulator ·" not in screen.text(), "runtime picker to close")
         send(b"3", b"Ready when you are")
         send(b":", b"Type to filter")
         send(b"\x1b", b"Ready when you are")
@@ -229,3 +255,10 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
                 process.wait()
         os.close(master)
         os.close(slave)
+        if simulator_name:
+            inventory = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "--json"]))
+            for devices in inventory["devices"].values():
+                for device in devices:
+                    if device["name"] == simulator_name:
+                        subprocess.run(["xcrun", "simctl", "delete", device["udid"]], check=True)
+            print("PASS: disposable manager simulator cleaned up")

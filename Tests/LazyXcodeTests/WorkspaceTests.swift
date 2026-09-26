@@ -28,21 +28,24 @@ import Testing
     }
 }
 
-@Test @MainActor func keyboardNavigationAndSearchAreScopedToPicker() {
-    let model = sampleModel()
+@Test @MainActor func keyboardNavigationAndSearchAreScopedToPicker() async {
+    let model = deviceModel()
     let view = WorkspaceView(model: model, live: false)
     #expect(view.handle(KeyPress(.character("3"))) == .handled)
     #expect(model.pane == 2)
     _ = view.handle(KeyPress(.tab))
+    #expect(model.pane == 3)
+    _ = view.handle(KeyPress(.tab))
     #expect(model.pane == 0)
     _ = view.handle(KeyPress(.tab, modifiers: .shift))
-    #expect(model.pane == 2)
+    #expect(model.pane == 3)
     model.showMenu("Example picker", [MenuItem("First") {}, MenuItem("Query") {}])
     #expect(view.handle(KeyPress(.character("q"))) == .handled)
     #expect(model.menu?.filtered.count == 1)
     _ = view.handle(KeyPress(.escape))
     #expect(model.menu == nil)
     #expect(view.handle(KeyPress(.character("q"))) == .ignored)
+    await model.shutdown()
 }
 
 @Test(arguments: [true, false]) @MainActor

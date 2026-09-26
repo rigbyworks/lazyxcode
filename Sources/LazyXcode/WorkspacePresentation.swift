@@ -74,6 +74,10 @@ extension WorkspaceModel {
         managers.values.contains(where: \.active) || manager?.active == true || !queuedRequests.isEmpty
     }
     func requestQuit() -> Bool {
+        guard simulatorCreation == nil else {
+            deviceStatus = "Finishing simulator creation. Please wait before quitting."
+            return false
+        }
         guard hasActiveActivities else { return true }
         showMenu(
             "Active Activities",
@@ -136,6 +140,9 @@ extension WorkspaceModel {
             "XCODE CLOUD · READ ONLY\n\nProject: \(container.path)\nProduct: \(product)\nWorkflow: \(workflow)\nRefresh: every \(interval)s\nLast refresh: \(cloudLastRefresh?.formatted() ?? "Never")\n\n\(cloudStatus)\n\n\(loading ? status : "r refresh · a artifacts · Enter test results")"
     }
     func footer(width: Int) -> String {
+        if simulatorDraft != nil {
+            return simulatorCreation == nil ? " [Enter] Create  [Esc] Cancel  [Ctrl-U] Clear" : " Creating simulator..."
+        }
         if menu != nil { return " [Enter] Select   [Esc] Back" }
         if loading { return " [Esc / x] Cancel   [:] Actions" }
         let anchors =
@@ -143,7 +150,9 @@ extension WorkspaceModel {
             ? "[:] Actions   [m] \(cloudMode ? "Local" : "Cloud")   [?] Help"
             : "[:] Actions  [?] Help"
         let hints: [String]
-        if pane == 2 {
+        if pane == 3 {
+            hints = cloudMode ? ["[Enter] Details", "[R] Refresh"] : ["[n] New", "[Enter] Actions", "[R] Refresh"]
+        } else if pane == 2 {
             hints =
                 detailText == nil
                 ? ["[v] \((cloudMode ? cloudRaw : raw) ? "Summary" : "Raw")", "[G] Follow", "[y] Copy", "[j/k] Scroll"]
