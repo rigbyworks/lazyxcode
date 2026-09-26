@@ -4,3 +4,5 @@
 
 # Old local build artifact; never include it in source releases.
 /lazy-xcode
+/.build/
+/.swiftpm/

@@ -1,0 +1,65 @@
+name: Full validation
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      version:
+        type: string
+        default: ci
+permissions:
+  contents: read
+concurrency:
+  group: full-validation-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release-build:
+    runs-on: xcode-27
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ inputs.version || 'ci' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - run: swift --version
+      - run: make check
+      - run: make terminal-smoke
+      - run: make build
+      - name: Check command-line interface without a project
+        run: |
+          executable="$PWD/lazyxcode"
+          cd "$RUNNER_TEMP"
+          "$executable" --help
+          test "$("$executable" --version)" = "lazyxcode $VERSION"
+  xcode-integration:
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.3.app/Contents/Developer
+      LAZYXCODE_RELEASE_SMOKE: '1'
+      LAZYXCODE_SMOKE_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-18-4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: swift-actions/setup-swift@v3
+        with:
+          swift-version: '6.4.0'
+      - name: Install the runtime matching Xcode 16.3
+        run: |
+          sudo xcode-select --switch "$DEVELOPER_DIR"
+          # Warm up CoreSimulator before downloading (runner-images#12862).
+          xcrun simctl list > /dev/null
+          xcodebuild -downloadPlatform iOS -buildVersion 18.4
+      - run: swift test --filter releaseSmoke
+  package:
+    runs-on: xcode-27
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - run: bash scripts/test-homebrew.sh
