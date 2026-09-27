@@ -709,7 +709,7 @@ final class WorkspaceModel {
         }
     }
     func openProject() {
-        load("Opening Xcode...") { try await self.client.runner.run("open", ["-a", "Xcode", self.container.path]) }
+        load("Opening Xcode...") { try await self.client.openInXcode(self.container.path) }
     }
     func clearCache() {
         do {

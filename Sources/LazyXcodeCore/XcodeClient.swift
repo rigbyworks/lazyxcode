@@ -4,9 +4,17 @@ public struct XcodeClient: Sendable {
     public let runner: any CommandRunning
     public init(runner: any CommandRunning = CommandRunner()) { self.runner = runner }
 
-    public func checkEnvironment() async throws {
-        let directory = String(decoding: try await runner.run("xcode-select", ["-p"]), as: UTF8.self)
+    public func developerDirectory() async throws -> String {
+        String(decoding: try await runner.run("xcode-select", ["-p"]), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    public func openInXcode(_ path: String) async throws {
+        let app = URL(fileURLWithPath: try await developerDirectory()).deletingLastPathComponent()
+            .deletingLastPathComponent()
+        try await runner.run("open", ["-a", app.path, path])
+    }
+    public func checkEnvironment() async throws {
+        let directory = try await developerDirectory()
         guard directory.hasPrefix("/"), FileManager.default.fileExists(atPath: directory + "/usr/bin/xcodebuild") else {
             throw AppError("Full Xcode is required. Select it with xcode-select or DEVELOPER_DIR.")
         }
@@ -119,8 +127,7 @@ public struct XcodeClient: Sendable {
         do { try await runner.run("xcrun", ["simctl", "boot", destination.id]) } catch {
             if !error.localizedDescription.contains("current state: Booted") { throw error }
         }
-        let developer = String(decoding: try await runner.run("xcode-select", ["-p"]), as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let developer = try await developerDirectory()
         let hub = URL(fileURLWithPath: developer).deletingLastPathComponent().appendingPathComponent(
             "Applications/DeviceHub.app")
         if FileManager.default.fileExists(atPath: hub.path) {
