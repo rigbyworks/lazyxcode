@@ -139,24 +139,10 @@ Issues and pull requests are welcome. For larger changes, open an issue first so
 ```sh
 swift build
 swift run lazyxcode --snapshot   # render a sample workspace without Xcode
-make test                        # unit and terminal UI tests
 make check                       # formatting, tests, build, and CLI checks
 ```
 
-Run `make check` before opening a PR. To fix formatting:
-
-```sh
-swift format format --in-place --recursive Sources Tests Package.swift
-```
-
-The default tests don't need a simulator, credentials, or network access. `make terminal-smoke` drives the real terminal against a throwaway project, and `make smoke` runs a simulator integration test.
-
-The code is split into two modules:
-
-- `Sources/LazyXcodeCore` runs Xcode commands and handles build activities, storage, results, and Xcode Cloud networking.
-- `Sources/LazyXcode` holds the workspace state and the Swift-TUI views.
-
-Maintainers: see [RELEASING.md](RELEASING.md) for the release process.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the project layout, the slower smoke tests, and PR guidelines. Maintainers can find the release process in [RELEASING.md](RELEASING.md).
 
 ## License
 
