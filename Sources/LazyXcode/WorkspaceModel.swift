@@ -93,7 +93,7 @@ final class WorkspaceModel {
         var paused: String?
     }
     @ObservationIgnored var cacheSizeTask: Task<Void, Never>?
-    @ObservationIgnored var wrappedCache: (text: String, width: Int, lines: [String])?
+    @ObservationIgnored var wrappedCache: (text: String, width: Int, lines: [OutputLine])?
 
     @ObservationIgnored let client: XcodeClient
     @ObservationIgnored var managers: [String: BuildManager] = [:]
@@ -547,7 +547,7 @@ final class WorkspaceModel {
             status = "Log bytes \(page.start)...\(page.end)"
         } catch { status = error.localizedDescription }
     }
-    func outputLines(width: Int) -> [String] {
+    func outputLines(width: Int) -> [OutputLine] {
         let text = displayedText
         if let cached = wrappedCache, cached.width == width, cached.text == text { return cached.lines }
         let lines = OutputFormatter.wrappedLines(text, width: max(1, width), limit: nil)

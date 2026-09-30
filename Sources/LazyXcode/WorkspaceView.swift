@@ -516,14 +516,14 @@ private struct OutputPane: View {
             focused: model.pane == 2, width: width, height: height
         ) {
             ForEach(Array(lines.enumerated().dropFirst(offset).prefix(count)), id: \.offset) { _, line in
-                Text(line.isEmpty ? " " : line).foregroundStyle(outputStyle(line)).lineLimit(1)
+                Text(line.text.isEmpty ? " " : line.text).foregroundStyle(outputStyle(line.source)).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 }
 
-private func outputStyle(_ line: String) -> SemanticShapeStyle {
+func outputStyle(_ line: String) -> SemanticShapeStyle {
     if line.contains("error:") || line.contains("✗") || line.contains("FAILED") || line.hasPrefix("[FAIL]") {
         return .danger
     }
@@ -577,6 +577,12 @@ private struct MenuView: View {
     }
 }
 
+/// One wrapped row of output. Continuation rows share their source line's style.
+struct OutputLine: Equatable {
+    var text: String
+    var source: String
+}
+
 extension OutputFormatter {
     static func cellWidth(_ character: Character) -> Int {
         let scalars = character.unicodeScalars
@@ -591,23 +597,23 @@ extension OutputFormatter {
         }
         return 1
     }
-    static func wrappedLines(_ text: String, width: Int, limit: Int? = 2000) -> [String] {
-        lines(text, limit: limit).flatMap { line -> [String] in
-            guard !line.isEmpty else { return [""] }
+    static func wrappedLines(_ text: String, width: Int, limit: Int? = 2000) -> [OutputLine] {
+        lines(text, limit: limit).flatMap { line -> [OutputLine] in
+            guard !line.isEmpty else { return [OutputLine(text: "", source: "")] }
             var current = ""
             var cells = 0
-            var result: [String] = []
+            var result: [OutputLine] = []
             for character in line.replacingOccurrences(of: "\t", with: "    ") {
                 let next = cellWidth(character)
                 if cells + next > max(1, width) && !current.isEmpty {
-                    result.append(current)
+                    result.append(OutputLine(text: current, source: line))
                     current = ""
                     cells = 0
                 }
                 current.append(character)
                 cells += next
             }
-            if !current.isEmpty { result.append(current) }
+            if !current.isEmpty { result.append(OutputLine(text: current, source: line)) }
             return result
         }
     }

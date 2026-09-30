@@ -320,8 +320,15 @@ func destinationRefreshPreservesOpenPickerSelection(keepSelection: Bool) async t
 }
 
 @Test func outputWrappingUsesTerminalCellWidths() {
-    #expect(OutputFormatter.wrappedLines("测试文件.swift", width: 4, limit: nil) == ["测试", "文件", ".swi", "ft"])
-    #expect(OutputFormatter.wrappedLines("a😀bc", width: 3, limit: nil) == ["a😀", "bc"])
+    #expect(OutputFormatter.wrappedLines("测试文件.swift", width: 4, limit: nil).map(\.text) == ["测试", "文件", ".swi", "ft"])
+    #expect(OutputFormatter.wrappedLines("a😀bc", width: 3, limit: nil).map(\.text) == ["a😀", "bc"])
+}
+
+@Test func wrappedOutputKeepsTheSourceLineStyle() {
+    let warning = "  warning: Build — Metadata extraction skipped, no AppIntents.framework dependency found"
+    let lines = OutputFormatter.wrappedLines(warning, width: 40, limit: nil)
+    #expect(lines.count == 3)
+    #expect(lines.allSatisfy { outputStyle($0.source) == .warning })
 }
 
 @Test @MainActor func compactWorkspaceKeepsEveryPaneAndCloudSettingReachable() throws {
