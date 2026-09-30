@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in lazyxcode doesn't work as expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a workspace with ...
+        2. Press `t` and choose ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: lazyxcode-version
+    attributes:
+      label: lazyxcode version
+      description: Output of `lazyxcode --version`.
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: Output of `sw_vers -productVersion`.
+    validations:
+      required: true
+  - type: textarea
+    id: xcode-version
+    attributes:
+      label: Xcode version
+      description: Output of `xcodebuild -version`.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal app and size
+      placeholder: Ghostty, 120x40
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Press `i` in lazyxcode to find the activity log. Remove anything private before you paste it.
+      render: text
