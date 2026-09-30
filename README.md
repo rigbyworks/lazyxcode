@@ -12,13 +12,15 @@ Built in Swift with [Swift-TUI](https://github.com/SwiftTUI/swift-tui).
 
 - macOS 15 or newer
 - Full Xcode 16.3 or newer for the projects you build, with first-launch setup done and the simulator runtimes you need installed
-- To build lazyxcode from source, a Swift 6.4 toolchain (included with Xcode 27)
+- Xcode 27 or another Swift 6.4 toolchain to compile lazyxcode itself. Homebrew compiles it from source too.
 
 ### Install with Homebrew
 
 ```sh
 brew install rigbyworks/tap/lazyxcode
 ```
+
+The formula supports Apple Silicon Macs.
 
 ### Build from source
 
