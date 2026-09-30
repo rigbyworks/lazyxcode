@@ -11,21 +11,29 @@ private let simulatorList = Data(
          "supportedDeviceTypes":[{"identifier":"phone","name":"iPhone"}]},
         {"identifier":"watch","name":"watchOS 27.0","version":"27.0","isAvailable":true,
          "supportedDeviceTypes":[{"identifier":"watch-model","name":"Apple Watch"}]},
+        {"identifier":"vision","name":"visionOS 27.0","version":"27.0","isAvailable":true,"supportedDeviceTypes":[]},
+        {"identifier":"ios-26","name":"iOS 26.4","version":"26.4","isAvailable":true,"supportedDeviceTypes":[]},
+        {"identifier":"tv","name":"tvOS 27.0","version":"27.0","isAvailable":true,"supportedDeviceTypes":[]},
         {"identifier":"old","name":"iOS 18.0","isAvailable":false}
       ],
       "devices": {
         "ios":[{"udid":"sim","name":"QA phone","state":"Shutdown","isAvailable":true,"deviceTypeIdentifier":"phone"}],
-        "old":[{"udid":"unavailable","name":"Old phone","isAvailable":false}]
+        "old":[{"udid":"unavailable","name":"Old phone","isAvailable":false}],
+        "com.apple.CoreSimulator.SimRuntime.watchOS-10-2":[{"udid":"orphan","name":"Old watch","isAvailable":false}]
       }
     }
     """#.utf8)
 
 @Test func simulatorInventoryKeepsUnavailableDevicesButOnlyOffersInstalledCompatibleRuntimes() throws {
     let inventory = try SimulatorInventory.parse(simulatorList)
-    #expect(Set(inventory.runtimes.map(\.id)) == ["ios", "watch"])
+    #expect(inventory.runtimes.map(\.id) == ["ios", "ios-26", "tv", "vision", "watch"])
     #expect(inventory.runtimes.first { $0.id == "ios" }?.deviceTypes.map(\.id) == ["phone"])
     #expect(inventory.runtimes.first { $0.id == "watch" }?.deviceTypes.map(\.id) == ["watch-model"])
     #expect(inventory.devices.first { $0.id == "unavailable" }?.state == "Unavailable")
+    #expect(inventory.devices.first { $0.id == "unavailable" }?.os == "18.0")
+    let orphan = inventory.devices.first { $0.id == "orphan" }
+    #expect(orphan?.platform == "watchOS Simulator")
+    #expect(orphan?.os == "10.2")
     #expect(inventory.devices.first { $0.id == "sim" }?.os == "27.0")
     #expect(inventory.devices.first { $0.id == "sim" }?.isSimulator == true)
     #expect(throws: AppError.self) { try SimulatorInventory.parse(Data("{}".utf8)) }

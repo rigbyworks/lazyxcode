@@ -21,29 +21,52 @@ public struct SimulatorInventory: Sendable {
             throw AppError("Xcode returned an invalid simulator list")
         }
         let runtimeValues = document["runtimes"].array
+        // Group runtimes by platform, newest version first, so iOS leads the picker.
         let runtimes = runtimeValues.filter { $0["isAvailable"].bool }.map { runtime in
+            (details: runtimeDetails(runtime["identifier"].string, runtime), value: runtime)
+        }.sorted { a, b in
+            if a.details.platform != b.details.platform {
+                return a.details.platform.localizedStandardCompare(b.details.platform) == .orderedAscending
+            }
+            let order = a.details.version.compare(b.details.version, options: .numeric)
+            return order == .orderedSame ? a.value["name"].string < b.value["name"].string : order == .orderedDescending
+        }.map(\.value).map { runtime in
             SimulatorRuntime(
                 id: runtime["identifier"].string, name: runtime["name"].string,
                 deviceTypes: runtime["supportedDeviceTypes"].array.compactMap { type in
                     guard !type["identifier"].string.isEmpty, !type["name"].string.isEmpty else { return nil }
                     return SimulatorDeviceType(id: type["identifier"].string, name: type["name"].string)
                 }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
+        }
         let devices = document["devices"].object.flatMap { runtimeID, values in
-            let runtime = runtimeValues.first { $0["identifier"].string == runtimeID }
-            let platform = runtime?["name"].string.split(separator: " ").first.map(String.init) ?? "Unknown"
+            let details = runtimeDetails(runtimeID, runtimeValues.first { $0["identifier"].string == runtimeID })
             return values.array.compactMap { value -> Destination? in
                 guard !value["udid"].string.isEmpty else { return nil }
                 var device = Destination(
-                    id: value["udid"].string, name: value["name"].string,
-                    os: runtime?["version"].string ?? runtimeID,
-                    platform: platform + " Simulator",
+                    id: value["udid"].string, name: value["name"].string, os: details.version,
+                    platform: details.platform + " Simulator",
                     state: value["isAvailable"].bool ? value["state"].string : "Unavailable")
                 device.deviceType = value["deviceTypeIdentifier"].string
                 return device
             }
         }.sorted { ($0.platform, $0.name, $0.os, $0.id) < ($1.platform, $1.name, $1.os, $1.id) }
         return Self(devices: devices, runtimes: runtimes)
+    }
+
+    /// Devices can outlive their runtime, so fall back to the identifier,
+    /// such as `com.apple.CoreSimulator.SimRuntime.iOS-17-0`.
+    static func runtimeDetails(_ id: String, _ runtime: JSONValue?) -> (platform: String, version: String) {
+        let words = runtime?["name"].string.split(separator: " ", maxSplits: 1).map(String.init) ?? []
+        let parts = id.split(separator: ".").last?.split(separator: "-").map(String.init) ?? []
+        let parsed = parts.count > 1 && parts.dropFirst().allSatisfy { Int($0) != nil }
+        let platform = [
+            words.first ?? "", runtime?["platform"].string ?? "", parsed ? parts[0] : "",
+        ].first { !$0.isEmpty }
+        let version = [
+            runtime?["version"].string ?? "", words.count > 1 ? words[1] : "",
+            parsed ? parts.dropFirst().joined(separator: ".") : "",
+        ].first { !$0.isEmpty }
+        return (platform ?? "Unknown", version ?? id)
     }
 }
 
