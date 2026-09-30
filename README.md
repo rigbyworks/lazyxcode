@@ -38,6 +38,9 @@ Discovery checks the current directory for `.xcworkspace` and `.xcodeproj` direc
 2. Press `b` to build or `r` to build and run. Simulator and device launches stream their console output until the app exits or you cancel the activity.
 3. Press `t` for all, unit, UI, or individual tests. Coverage is enabled by default and remembered per project.
 4. Select a completed test activity and press Enter to inspect results, coverage, attachments, or rerun failed tests.
+5. Press `d` to manage simulators and devices. Press `n` to create a simulator, choose an installed runtime and a supported device model, then enter a name. `Ctrl-U` clears the suggested name. Enter creates it. Esc closes the form, or stops a creation in progress. Quitting during creation asks for confirmation and then stops it.
+
+The Devices window opens over the workspace and lists simulators and physical devices known to Xcode, including unavailable or disconnected entries. Press `/` to filter by name, OS, kind, or state; Enter opens actions for the highlighted device and Esc clears the filter. Press `R` to refresh, or Enter for device details, opening a simulator, and selecting a compatible build target. Esc or `d` closes it. Creation refreshes the Target picker automatically. If no runtimes are installed, add one in Xcode Settings > Components first. Device changes are available in Local mode.
 
 Schemes and destinations from the last day are cached between launches and shown immediately while Xcode refreshes them in the background. A Braille spinner marks each query while it loads or refreshes, including inside open pickers. When the metadata cache has expired, a remembered scheme lets destination discovery start alongside the scheme query. Reselecting the current scheme reuses fresh destinations. Cached devices may have disconnected since the last refresh. Destinations refresh every 15 seconds; opening the picker reuses results refreshed within that interval. Press `R` to force fresh scheme and destination discovery. Discovery respects the selected scheme and excludes unavailable simulators and placeholder destinations. `DEVELOPER_DIR` and `xcode-select` determine which Xcode tools run.
 
@@ -57,7 +60,10 @@ Schemes and destinations from the last day are cached between launches and shown
 | `t` | Test scopes, individual discovery, coverage toggle |
 | `x` | Cancel the selected local activity or pending download/load |
 | `c` | Clear managed DerivedData when no activities are active |
-| `R` | Reload local schemes and destinations |
+| `d` | Show or hide simulators and devices |
+| `R` | Reload local schemes and destinations; refresh devices in the Devices window |
+| `n` | Create a simulator in the Devices window |
+| `/` | Filter the Devices window |
 | `m` | Switch Local / Cloud |
 | `L` | Load older Cloud runs |
 | `a` | Download a Cloud artifact |
@@ -126,7 +132,7 @@ make build
 
 `Sources/LazyXcodeCore` owns Xcode commands, process cancellation, build activities, storage, results, and Cloud networking. `Sources/LazyXcode` owns the observable workspace state and Swift-TUI views. The command runner and URL sessions are replaceable test boundaries. UI tests render the real views at normal and 44×10 sizes and drive the same keyboard handlers used by the terminal. Parity tests cover phase aggregation and retained timings, concise diagnostics and test suites, paused output, mode state, confirmations, simulator test startup, command-stream separation, and Cloud pagination. Set `LAZYXCODE_SNAPSHOT_DIR=/tmp/lazyxcode-snapshots` when running `swift test` to export build-output and target-picker renderer snapshots.
 
-The default tests need no simulator, credentials, or network after package resolution. `make terminal-smoke` drives the real terminal runtime against a disposable project. `make smoke` opts into a disposable simulator integration test. See [RELEASING.md](RELEASING.md) for release and package checks.
+The default tests need no simulator, credentials, or network after package resolution. `make terminal-smoke` drives the real terminal runtime against a disposable project. Set `LAZYXCODE_DEVICE_SMOKE=1` to also create a simulator through the Devices window, verify it in the Target picker, and delete it afterward. `make smoke` opts into a disposable simulator integration test. See [RELEASING.md](RELEASING.md) for release and package checks.
 
 ## Troubleshooting
 

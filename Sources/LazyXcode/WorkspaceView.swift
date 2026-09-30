@@ -13,13 +13,28 @@ struct WorkspaceView: View {
             let layout = WorkspaceLayout(width: width, height: height, pane: model.pane)
             VStack(alignment: .leading, spacing: 0) {
                 HeaderView(model: model, width: width)
-                if layout.compact { PaneTabs(pane: model.pane) }
+                if layout.compact { PaneTabs(pane: model.pane, width: width) }
                 ZStack {
                     if width < 44 || height < 10 {
                         Text("Terminal is too small. Current: \(width)×\(height). Required: 44×10.")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         WorkspacePanes(model: model, build: BuildPaneState(model: model), layout: layout)
+                    }
+                    if model.showingDevices {
+                        DevicesView(
+                            state: DevicesState(model: model), width: min(76, width - 2),
+                            height: min(16, layout.contentHeight)
+                        )
+                        .background(.background)
+                    }
+                    // The quit confirmation can open over the name form.
+                    if let draft = model.simulatorDraft {
+                        SimulatorNameView(
+                            draft: draft, creating: model.simulatorCreation != nil, width: min(76, width - 2),
+                            height: min(8, layout.contentHeight)
+                        )
+                        .background(.background)
                     }
                     if let menu = model.menu {
                         MenuView(
@@ -53,7 +68,27 @@ struct WorkspaceView: View {
     func handle(_ press: KeyPress) -> KeyPressResult {
         if press.modifiers.contains(.ctrl) {
             if press.key == .character("c") { return model.requestQuit() ? .ignored : .handled }
+            if press.key == .character("u"), model.simulatorDraft != nil, model.simulatorCreation == nil {
+                model.simulatorDraft?.name = ""
+                return .handled
+            }
             return .ignored
+        }
+        if model.simulatorDraft != nil && model.menu == nil {
+            guard model.simulatorCreation == nil else {
+                if press.key == .escape { model.back() }
+                return .handled
+            }
+            switch press.key {
+            case .escape: model.back()
+            case .return: model.submitSimulator()
+            case .backspace:
+                if model.simulatorDraft?.name.isEmpty == false { model.simulatorDraft?.name.removeLast() }
+            case .character(let character): model.simulatorDraft?.name.append(character)
+            case .space: model.simulatorDraft?.name.append(" ")
+            default: return .handled
+            }
+            return .handled
         }
         if model.loading && (press.key == .escape || press.key == .character("x")) {
             model.cancelPending()
@@ -88,15 +123,54 @@ struct WorkspaceView: View {
             }
             return .handled
         }
+        if model.showingDevices && model.filteringDevices {
+            switch press.key {
+            case .escape: model.clearDeviceFilter()
+            case .return:
+                model.filteringDevices = false
+                // Opening the action menu would cancel the pending device action.
+                if !model.loading { model.activate() }
+            case .arrowUp: model.move(-1)
+            case .arrowDown: model.move(1)
+            case .pageUp: model.move(-10)
+            case .pageDown: model.move(10)
+            case .backspace: if !model.deviceQuery.isEmpty { model.deviceQuery.removeLast() }
+            case .character(let character): model.deviceQuery.append(character)
+            case .space: model.deviceQuery.append(" ")
+            default: break
+            }
+            return .handled
+        }
+        if model.showingDevices {
+            switch press.key {
+            case .arrowUp, .character("k"): model.move(-1)
+            case .arrowDown, .character("j"): model.move(1)
+            case .pageUp: model.move(-10)
+            case .pageDown: model.move(10)
+            case .home, .character("g"): model.jump(last: false)
+            case .end, .character("G"): model.jump(last: true)
+            case .return: if !model.loading { model.activate() }
+            case .escape: model.back()
+            case .character("d"): model.showingDevices = false
+            case .character("/"): model.filteringDevices = true
+            case .character("n"): if !model.loading { model.newSimulator() }
+            case .character("R"): model.refreshDevices(force: true)
+            case .character("i"): model.information()
+            case .character("q"): return model.requestQuit() ? .ignored : .handled
+            default: break
+            }
+            return .handled
+        }
         switch press.key {
         case .tab: model.pane = (model.pane + (press.modifiers.contains(.shift) ? 2 : 1)) % 3
         case .character("1"): model.pane = 0
         case .character("2"): model.pane = 1
         case .character("3"): model.pane = 2
+        case .character("d"): model.showDevices()
         case .arrowUp, .character("k"): model.move(-1)
         case .arrowDown, .character("j"): model.move(1)
-        case .pageUp: if model.pane == 2 { model.move(-10) }
-        case .pageDown: if model.pane == 2 { model.move(10) }
+        case .pageUp: if model.pane >= 2 { model.move(-10) }
+        case .pageDown: if model.pane >= 2 { model.move(10) }
         case .home, .character("g"): model.jump(last: false)
         case .end, .character("G"): model.jump(last: true)
         case .return: model.activate()
@@ -132,6 +206,7 @@ struct WorkspaceView: View {
     static let help = """
         Navigation
           1 / 2 / 3       Build / Activity / Output
+          d               Simulators and devices
           Tab / Shift-Tab Cycle panes
           j / k / arrows  Select or scroll
           g / G           First / last, top / follow output
@@ -149,6 +224,15 @@ struct WorkspaceView: View {
           c               Clear managed DerivedData
           R               Reload schemes and destinations
           [ / ]           Older / newer raw log page
+
+        Devices
+          /               Filter by name, OS, kind, or state
+          n               New simulator, in Local mode
+          R               Refresh simulators and devices
+          Enter           Device actions
+          Esc             Clear the filter, then close
+          d               Close
+          Ctrl-U          Clear the new simulator name
 
         Cloud, read-only
           m               Switch Local / Cloud
@@ -177,8 +261,9 @@ private struct HeaderView: View {
     var body: some View {
         HStack(spacing: 1) {
             Text(" lazyxcode").bold().foregroundStyle(.info)
-            Text(OutputFormatter.truncate(model.container.name, width: max(1, width - 30))).bold()
+            Text(OutputFormatter.truncate(model.container.name, width: max(1, width - (width >= 80 ? 43 : 30)))).bold()
             Spacer(minLength: 0)
+            if width >= 80 { Text("[d] Devices").foregroundStyle(.info) }
             Text(model.cloudMode ? "Cloud  [m] Local " : "Local  [m] Cloud ").foregroundStyle(.muted)
         }.frame(width: width, height: 1, alignment: .leading)
     }
@@ -186,13 +271,17 @@ private struct HeaderView: View {
 
 private struct PaneTabs: View {
     let pane: Int
+    let width: Int
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(Array(["[1] Build", "[2] Activity", "[3] Output"].enumerated()), id: \.offset) { index, title in
+        HStack(spacing: 1) {
+            ForEach(Array(["[1] Build", "[2] Activity", "[3] Output"].enumerated()), id: \.offset) {
+                index, title in
                 Text(title).bold()
                     .foregroundStyle(index == pane ? SemanticShapeStyle.info : SemanticShapeStyle.muted)
                     .background(index == pane ? SemanticShapeStyle.selection : SemanticShapeStyle.background)
             }
+            Spacer(minLength: 0)
+            if width >= 50 { Text("[d] Devices ").foregroundStyle(.info) }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 1)
     }
 }
@@ -201,10 +290,16 @@ private struct StatusView: View {
     let model: WorkspaceModel
     let width: Int
     var body: some View {
-        let status = OutputFormatter.sanitize(model.cloudMode && !model.loading ? model.cloudStatus : model.status)
-            .replacingOccurrences(of: "\n", with: " · ")
+        let status = OutputFormatter.sanitize(
+            model.showingDevices && !model.loading
+                ? model.deviceStatus : model.cloudMode && !model.loading ? model.cloudStatus : model.status
+        )
+        .replacingOccurrences(of: "\n", with: " · ")
         HStack(spacing: 1) {
-            let discovering = !model.cloudMode && model.discoveryStatus != nil
+            let discovering =
+                model.showingDevices
+                ? model.deviceRefresh != nil || model.simulatorCreation != nil
+                : !model.cloudMode && model.discoveryStatus != nil
             if discovering { DiscoverySpinner().padding(.leading, 1) }
             Text(
                 OutputFormatter.truncate(
@@ -242,7 +337,7 @@ private struct WorkspacePanes: View {
     }
 }
 
-private struct Pane<Content: View>: View {
+struct Pane<Content: View>: View {
     let title: String
     var caption = ""
     let focused: Bool
@@ -521,6 +616,10 @@ extension OutputFormatter {
 extension WorkspaceModel {
     func actionMenu() {
         var items: [MenuItem] = [
+            MenuItem("Manage simulators and devices") {
+                self.closeMenu()
+                self.showDevices()
+            },
             MenuItem("Open project in Xcode") {
                 self.closeMenu()
                 self.openProject()
@@ -559,6 +658,10 @@ extension WorkspaceModel {
             ]
         } else {
             items += [
+                MenuItem("Create simulator") {
+                    self.closeMenu()
+                    self.newSimulator()
+                },
                 MenuItem("Build") {
                     self.closeMenu()
                     self.queue(.build)

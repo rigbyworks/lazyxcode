@@ -74,7 +74,7 @@ extension WorkspaceModel {
         managers.values.contains(where: \.active) || manager?.active == true || !queuedRequests.isEmpty
     }
     func requestQuit() -> Bool {
-        guard hasActiveActivities else { return true }
+        guard hasActiveActivities || simulatorCreation != nil else { return true }
         showMenu(
             "Active Activities",
             [
@@ -137,13 +137,24 @@ extension WorkspaceModel {
     }
     func footer(width: Int) -> String {
         if menu != nil { return " [Enter] Select   [Esc] Back" }
+        if simulatorDraft != nil {
+            return simulatorCreation == nil
+                ? " [Enter] Create  [Esc] Cancel  [Ctrl-U] Clear" : " Creating simulator...  [Esc] Cancel"
+        }
         if loading { return " [Esc / x] Cancel   [:] Actions" }
+        if showingDevices && filteringDevices { return " [Enter] Actions   [Esc] Clear filter" }
+        // Workspace shortcuts are unavailable while Devices is open.
         let anchors =
-            width >= 64
-            ? "[:] Actions   [m] \(cloudMode ? "Local" : "Cloud")   [?] Help"
-            : "[:] Actions  [?] Help"
+            showingDevices
+            ? []
+            : [
+                width >= 64
+                    ? "[:] Actions   [m] \(cloudMode ? "Local" : "Cloud")   [?] Help" : "[:] Actions  [?] Help"
+            ]
         let hints: [String]
-        if pane == 2 {
+        if showingDevices {
+            hints = deviceShortcuts
+        } else if pane == 2 {
             hints =
                 detailText == nil
                 ? ["[v] \((cloudMode ? cloudRaw : raw) ? "Summary" : "Raw")", "[G] Follow", "[y] Copy", "[j/k] Scroll"]
@@ -160,10 +171,10 @@ extension WorkspaceModel {
                 ? ["[Enter] Choose", "[r] Refresh"] : ["[Enter] Choose", "[b] Build", "[r] Run", "[t] Test"]
         }
         var visible: [String] = []
-        for hint in hints where (" " + (visible + [hint, anchors]).joined(separator: "   ")).count <= width {
+        for hint in hints where (" " + (visible + [hint] + anchors).joined(separator: "   ")).count <= width {
             visible.append(hint)
         }
-        return " " + (visible + [anchors]).joined(separator: "   ")
+        return " " + (visible + anchors).joined(separator: "   ")
     }
 }
 

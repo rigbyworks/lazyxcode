@@ -44,3 +44,18 @@ import Testing
     #expect(tests[0].id == "test://bundle/Suite/test")
     #expect(tests[0].failed)
 }
+
+@Test func openInXcodeUsesSelectedXcode() async throws {
+    actor Runner: CommandRunning {
+        var calls: [[String]] = []
+        func run(_ executable: String, _ arguments: [String], output: (@Sendable (Data) -> Void)?) async throws -> Data
+        {
+            calls.append([executable] + arguments)
+            if executable == "xcode-select" { return Data("/Applications/Xcode-beta 2.app/Contents/Developer\n".utf8) }
+            return Data()
+        }
+    }
+    let runner = Runner()
+    try await XcodeClient(runner: runner).openInXcode("/App/App.xcodeproj")
+    #expect(await runner.calls.last == ["open", "-a", "/Applications/Xcode-beta 2.app", "/App/App.xcodeproj"])
+}
