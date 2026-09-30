@@ -16,11 +16,14 @@ actor DeviceManagerRunner: CommandRunning {
     let failCreation: Bool
     let noRuntimes: Bool
     let failPhysical: Bool
+    /// An argument, such as "create" or "devicectl", whose command runs until cancelled.
+    let hang: String?
     let id = "A2EAD109-FD4B-4BE7-A4A1-3AD76099C121"
-    init(failCreation: Bool = false, noRuntimes: Bool = false, failPhysical: Bool = false) {
+    init(failCreation: Bool = false, noRuntimes: Bool = false, failPhysical: Bool = false, hang: String? = nil) {
         self.failCreation = failCreation
         self.noRuntimes = noRuntimes
         self.failPhysical = failPhysical
+        self.hang = hang
     }
     func stopRefreshing() { failRefresh = true }
     func prepareIncompatibleDevice(error: Bool) {
@@ -29,6 +32,7 @@ actor DeviceManagerRunner: CommandRunning {
         destinationError = error
     }
     func run(_ executable: String, _ arguments: [String], output: (@Sendable (Data) -> Void)?) async throws -> Data {
+        if let hang, arguments.contains(hang) { try await Task.sleep(for: .seconds(600)) }
         if arguments.starts(with: ["simctl", "create"]) {
             creationCalls += 1
             if failCreation { throw AppError("Runtime is no longer available") }
@@ -111,12 +115,17 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
     _ = view.handle(KeyPress(.return))
     _ = view.handle(KeyPress(.return))
     #expect(!model.requestQuit())
+    #expect(model.menu?.title == "Active Activities")
+    _ = view.handle(KeyPress(.escape))
+    #expect(model.menu == nil)
+    #expect(model.simulatorCreation != nil)
     await model.simulatorCreation?.value
     await model.deviceRefresh?.value
     await model.destinationRefresh?.value
     #expect(await runner.creationCalls == 1)
     #expect(await runner.createdName == "QA phone")
     #expect(model.simulatorDraft == nil)
+    #expect(model.deviceStatus.hasPrefix("Created QA phone · 1 simulators"))
     #expect(model.selectedDevice?.name == "QA phone")
     #expect(model.destinations.contains { $0.id == model.selectedDeviceID })
     #expect(await runner.destinationCalls == 1)
@@ -127,6 +136,8 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
     #expect(model.destinationID == model.selectedDeviceID)
     #expect(!model.showingDevices)
     #expect(model.pane == 0)
+    // The destination query that followed creation is recent enough to reuse.
+    #expect(await runner.destinationCalls == 1)
     await model.shutdown()
 }
 
@@ -148,8 +159,8 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
     await model.shutdown()
 }
 
-@Test @MainActor func shutdownFinishesSimulatorCreationWithoutStartingMoreDiscovery() async {
-    let runner = DeviceManagerRunner()
+@Test @MainActor func shutdownCancelsSimulatorCreationWithoutStartingMoreDiscovery() async {
+    let runner = DeviceManagerRunner(hang: "create")
     let model = deviceModel(runner: runner)
     model.showDevices()
     await model.deviceRefresh?.value
@@ -158,7 +169,7 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
     model.activateMenu()
     model.submitSimulator()
     await model.shutdown()
-    #expect(await runner.creationCalls == 1)
+    #expect(await runner.creationCalls == 0)
     #expect(model.simulatorCreation == nil)
     #expect(model.deviceRefresh == nil)
     #expect(model.destinationRefresh == nil)
@@ -279,5 +290,58 @@ func devicesModalAndNameFormRenderAcrossRetainedFrames(size: (Int, Int)) async {
     _ = view.handle(KeyPress(.character("d")))
     #expect(model.showingDevices)
     #expect(model.deviceQuery.isEmpty)
+    await model.shutdown()
+}
+
+@Test @MainActor func escapeAndQuitCancelHungSimulatorCreation() async {
+    let model = deviceModel(runner: DeviceManagerRunner(hang: "create"))
+    let view = WorkspaceView(model: model, live: false)
+    model.showDevices()
+    await model.deviceRefresh?.value
+    model.newSimulator()
+    model.activateMenu()
+    model.activateMenu()
+    model.submitSimulator()
+    _ = view.handle(KeyPress(.character("x")))
+    #expect(model.simulatorDraft?.name == "iPhone")
+    _ = view.handle(KeyPress(.escape))
+    await model.simulatorCreation?.value
+    #expect(model.simulatorCreation == nil)
+    #expect(model.simulatorDraft?.error == "Cancelled")
+    await model.deviceRefresh?.value
+    #expect(model.deviceStatus.hasPrefix("Cancelled creating iPhone"))
+    model.submitSimulator()
+    #expect(view.handle(KeyPress(.character("c"), modifiers: .ctrl)) == .handled)
+    #expect(model.menu?.title == "Active Activities")
+    _ = view.handle(KeyPress(.arrowDown))
+    #expect(view.handle(KeyPress(.return)) == .ignored)
+    #expect(model.quitRequested)
+    await model.shutdown()
+    #expect(model.simulatorCreation == nil)
+}
+
+@Test @MainActor func runtimePickerDoesNotWaitForPhysicalDevices() async {
+    let model = deviceModel(runner: DeviceManagerRunner(hang: "devicectl"))
+    model.newSimulator()
+    await model.pending?.value
+    #expect(model.menu?.title == "New simulator · Runtime")
+    #expect(model.deviceRefresh != nil)
+    await model.shutdown()
+    #expect(model.deviceRefresh == nil)
+}
+
+@Test @MainActor func devicesEnterKeepsPendingActionRunning() async {
+    let model = deviceModel()
+    let view = WorkspaceView(model: model, live: false)
+    model.showDevices()
+    await model.deviceRefresh?.value
+    model.physicalDevices = [
+        Destination(id: "phone", name: "iPhone 17", os: "27.0", platform: "iOS", state: "Connected", physical: true)
+    ]
+    model.load("Working...") { try await Task.sleep(for: .seconds(600)) }
+    _ = view.handle(KeyPress(.return))
+    _ = view.handle(KeyPress(.character("n")))
+    #expect(model.menu == nil)
+    #expect(model.loading)
     await model.shutdown()
 }

@@ -38,7 +38,7 @@ Discovery checks the current directory for `.xcworkspace` and `.xcodeproj` direc
 2. Press `b` to build or `r` to build and run. Simulator and device launches stream their console output until the app exits or you cancel the activity.
 3. Press `t` for all, unit, UI, or individual tests. Coverage is enabled by default and remembered per project.
 4. Select a completed test activity and press Enter to inspect results, coverage, attachments, or rerun failed tests.
-5. Press `d` to manage simulators and devices. Press `n` to create a simulator, choose an installed runtime and a supported device model, then enter a name. `Ctrl-U` clears the suggested name. Enter creates it; Esc cancels before creation starts.
+5. Press `d` to manage simulators and devices. Press `n` to create a simulator, choose an installed runtime and a supported device model, then enter a name. `Ctrl-U` clears the suggested name. Enter creates it. Esc closes the form, or stops a creation in progress. Quitting during creation asks for confirmation and then stops it.
 
 The Devices window opens over the workspace and lists simulators and physical devices known to Xcode, including unavailable or disconnected entries. Press `/` to filter by name, OS, kind, or state; Enter opens actions for the highlighted device and Esc clears the filter. Press `R` to refresh, or Enter for device details, opening a simulator, and selecting a compatible build target. Esc or `d` closes it. Creation refreshes the Target picker automatically. If no runtimes are installed, add one in Xcode Settings > Components first. Device changes are available in Local mode.
 

@@ -5,17 +5,17 @@ struct DevicesState {
     let devices: [Destination]
     let selectedID: String?
     let refreshing: Bool
-    let cloudMode: Bool
     let query: String
     let filtering: Bool
+    let shortcuts: [String]
 
     @MainActor init(model: WorkspaceModel) {
         devices = model.visibleDevices
-        selectedID = model.selectedDevice?.id
+        selectedID = model.selectedDevice(in: devices)?.id
         refreshing = model.deviceRefresh != nil
-        cloudMode = model.cloudMode
         query = model.deviceQuery
         filtering = model.filteringDevices
+        shortcuts = model.deviceShortcuts
     }
 }
 
@@ -62,8 +62,7 @@ struct DevicesView: View {
     private var hint: String {
         if state.filtering { return "/ " + state.query + "▏" }
         if !state.query.isEmpty { return "/ " + state.query + "  [/] Edit  [Esc] Clear" }
-        return state.cloudMode
-            ? "[/] Filter  [R] Refresh  [Esc] Close" : "[/] Filter  [n] New simulator  [R] Refresh  [Esc] Close"
+        return state.shortcuts.joined(separator: "  ")
     }
 }
 
@@ -81,9 +80,10 @@ struct SimulatorNameView: View {
                 Text(OutputFormatter.sanitize(error).replacingOccurrences(of: "\n", with: " ")).foregroundStyle(.danger)
                     .lineLimit(1)
             } else {
-                Text(creating ? "Creating simulator..." : "Enter Create · Esc Cancel · Ctrl-U Clear").foregroundStyle(
-                    .muted
-                ).lineLimit(1)
+                Text(creating ? "Creating simulator... · Esc Cancel" : "Enter Create · Esc Cancel · Ctrl-U Clear")
+                    .foregroundStyle(
+                        .muted
+                    ).lineLimit(1)
             }
         }
     }

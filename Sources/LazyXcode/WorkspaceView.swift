@@ -28,17 +28,18 @@ struct WorkspaceView: View {
                         )
                         .background(.background)
                     }
-                    if let menu = model.menu {
-                        MenuView(
-                            menu: menu, discoveryStatus: model.menuDiscoveryStatus, width: min(76, width - 2),
-                            height: min(16, layout.contentHeight)
-                        )
-                        .background(.background)
-                    }
+                    // The quit confirmation can open over the name form.
                     if let draft = model.simulatorDraft {
                         SimulatorNameView(
                             draft: draft, creating: model.simulatorCreation != nil, width: min(76, width - 2),
                             height: min(8, layout.contentHeight)
+                        )
+                        .background(.background)
+                    }
+                    if let menu = model.menu {
+                        MenuView(
+                            menu: menu, discoveryStatus: model.menuDiscoveryStatus, width: min(76, width - 2),
+                            height: min(16, layout.contentHeight)
                         )
                         .background(.background)
                     }
@@ -73,8 +74,11 @@ struct WorkspaceView: View {
             }
             return .ignored
         }
-        if model.simulatorDraft != nil {
-            guard model.simulatorCreation == nil else { return .handled }
+        if model.simulatorDraft != nil && model.menu == nil {
+            guard model.simulatorCreation == nil else {
+                if press.key == .escape { model.back() }
+                return .handled
+            }
             switch press.key {
             case .escape: model.back()
             case .return: model.submitSimulator()
@@ -124,7 +128,8 @@ struct WorkspaceView: View {
             case .escape: model.clearDeviceFilter()
             case .return:
                 model.filteringDevices = false
-                model.activate()
+                // Opening the action menu would cancel the pending device action.
+                if !model.loading { model.activate() }
             case .arrowUp: model.move(-1)
             case .arrowDown: model.move(1)
             case .pageUp: model.move(-10)
@@ -144,11 +149,11 @@ struct WorkspaceView: View {
             case .pageDown: model.move(10)
             case .home, .character("g"): model.jump(last: false)
             case .end, .character("G"): model.jump(last: true)
-            case .return: model.activate()
+            case .return: if !model.loading { model.activate() }
             case .escape: model.back()
             case .character("d"): model.showingDevices = false
             case .character("/"): model.filteringDevices = true
-            case .character("n"): model.newSimulator()
+            case .character("n"): if !model.loading { model.newSimulator() }
             case .character("R"): model.refreshDevices(force: true)
             case .character("i"): model.information()
             case .character("q"): return model.requestQuit() ? .ignored : .handled
@@ -268,7 +273,7 @@ private struct PaneTabs: View {
     let pane: Int
     let width: Int
     var body: some View {
-        HStack(spacing: width >= 46 ? 1 : 0) {
+        HStack(spacing: 1) {
             ForEach(Array(["[1] Build", "[2] Activity", "[3] Output"].enumerated()), id: \.offset) {
                 index, title in
                 Text(title).bold()

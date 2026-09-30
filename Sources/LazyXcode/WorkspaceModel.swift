@@ -47,6 +47,8 @@ final class WorkspaceModel {
     var selectedDeviceID: String?
     var deviceStatus = "Press R to refresh devices"
     var deviceRefresh: Task<Void, Never>?
+    /// The simulator half of `deviceRefresh`; its value is the failure message, if any.
+    @ObservationIgnored var simulatorRefresh: Task<String?, Never>?
     var simulatorDraft: SimulatorDraft?
     var simulatorCreation: Task<Void, Never>?
     @ObservationIgnored var deviceRefreshID = UUID()
@@ -459,7 +461,7 @@ final class WorkspaceModel {
     func move(_ amount: Int) {
         if showingDevices {
             let devices = visibleDevices
-            let index = devices.firstIndex { $0.id == selectedDevice?.id } ?? 0
+            let index = devices.firstIndex { $0.id == selectedDeviceID } ?? 0
             if !devices.isEmpty { selectedDeviceID = devices[min(devices.count - 1, max(0, index + amount))].id }
         } else if pane == 0 {
             let count = cloudMode ? 3 : 2
@@ -597,9 +599,9 @@ final class WorkspaceModel {
         menuParents = []
     }
     func back() {
-        if simulatorDraft != nil {
-            guard simulatorCreation == nil else { return }
-            simulatorDraft = nil
+        // The quit confirmation can open over the name form.
+        if simulatorDraft != nil && menu == nil {
+            if simulatorCreation != nil { cancelSimulatorCreation() } else { simulatorDraft = nil }
             return
         }
         if loading {
@@ -748,13 +750,14 @@ final class WorkspaceModel {
     func shutdown() async {
         shuttingDown = true
         let background =
-            [historyLoad, pending, discovery, destinationRefresh, cloudRefresh, cacheSizeTask, deviceRefresh].compactMap
-        { $0 }
+            [
+                historyLoad, pending, discovery, destinationRefresh, cloudRefresh, cacheSizeTask, deviceRefresh,
+                simulatorCreation,
+            ].compactMap { $0 }
             + Array(queuedRequests.values)
         for task in background { task.cancel() }
         cancelPending()
         for task in background { await task.value }
-        await simulatorCreation?.value
         for manager in managers.values { await manager.shutdown() }
     }
 }
