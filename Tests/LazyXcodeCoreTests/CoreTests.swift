@@ -34,6 +34,43 @@ import Testing
     #expect(destinations.first { $0.id == "device-1" }?.physical == true)
 }
 
+/// Stands in for Xcode answering `-showdestinations` without its simulators for the first `missing` calls.
+private actor FlakyDestinationRunner: CommandRunning {
+    let missing: Int
+    var destinationCalls = 0
+    init(missing: Int) { self.missing = missing }
+    func run(_ executable: String, _ arguments: [String], output: (@Sendable (Data) -> Void)?) async throws -> Data {
+        if executable == "xcrun" {
+            return Data(#"{"devices":{"iOS":[{"udid":"sim-1","isAvailable":true,"state":"Shutdown"}]}}"#.utf8)
+        }
+        destinationCalls += 1
+        var text = """
+            Available destinations for the scheme:
+              { platform:iOS, id:device-1, name:Phone }
+              { platform:iOS Simulator, id:simulator:placeholder, name:Any iOS Simulator Device }
+            """
+        if destinationCalls > missing { text += "\n  { platform:iOS Simulator, id:sim-1, OS:18.4, name:iPhone }" }
+        return Data(text.utf8)
+    }
+}
+
+@Test func destinationsRetryWhenXcodeOmitsSimulators() async throws {
+    let runner = FlakyDestinationRunner(missing: 2)
+    let destinations = try await XcodeClient(runner: runner).destinations(
+        Container(kind: .project, name: "App", path: "/App"), scheme: "App")
+    #expect(destinations.map(\.id).sorted() == ["device-1", "sim-1"])
+    #expect(await runner.destinationCalls == 3)
+}
+
+@Test func destinationsFailRatherThanDropEverySimulator() async throws {
+    let runner = FlakyDestinationRunner(missing: 3)
+    await #expect(throws: AppError.self) {
+        try await XcodeClient(runner: runner).destinations(
+            Container(kind: .project, name: "App", path: "/App"), scheme: "App")
+    }
+    #expect(await runner.destinationCalls == 3)
+}
+
 @Test func testCaseIdentifiersKeepBundleAndIgnoreRepetitions() throws {
     let data = Data(
         #"{"testNodes":[{"nodeType":"Unit test bundle","name":"AppTests.xctest","children":[{"nodeType":"Test Case","nodeIdentifier":"Suite/test()","nodeIdentifierURL":"test://bundle/Suite/test","result":"Failed","children":[{"nodeType":"Test Case","nodeIdentifier":"argument"}]}]}]}"#

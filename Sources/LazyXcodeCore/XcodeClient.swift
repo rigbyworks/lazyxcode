@@ -32,10 +32,29 @@ public struct XcodeClient: Sendable {
         return document[container.kind.rawValue]["schemes"].array.map(\.string).sorted()
     }
     public func destinations(_ container: Container, scheme: String) async throws -> [Destination] {
-        async let destinations = runner.run(
-            "xcodebuild", container.arguments + ["-scheme", scheme, "-showdestinations"])
-        async let devices = runner.run("xcrun", ["simctl", "list", "devices", "available", "--json"])
-        return try await Self.parseDestinations(String(decoding: destinations, as: UTF8.self), devices: devices)
+        let arguments = container.arguments + ["-scheme", scheme, "-showdestinations"]
+        async let first = runner.run("xcodebuild", arguments)
+        let devices = try await runner.run("xcrun", ["simctl", "list", "devices", "available", "--json"])
+        var text = String(decoding: try await first, as: UTF8.self)
+        // Xcode sometimes answers before CoreSimulator loads and leaves out every simulator, even incompatible
+        // ones. Accepting that answer would drop the selected simulator, so ask again.
+        if try Self.hasAvailableSimulators(devices) {
+            var attempts = 1
+            while !Self.listsSimulators(text) {
+                guard attempts < 3 else { throw AppError("Xcode listed no simulators. Press R to try again.") }
+                attempts += 1
+                text = String(decoding: try await runner.run("xcodebuild", arguments), as: UTF8.self)
+            }
+        }
+        return try Self.parseDestinations(text, devices: devices)
+    }
+    static func hasAvailableSimulators(_ devices: Data) throws -> Bool {
+        try JSONValue.decode(devices)["devices"].object.values.flatMap(\.array).contains { $0["isAvailable"].bool }
+    }
+    static func listsSimulators(_ text: String) -> Bool {
+        text.components(separatedBy: .newlines).contains {
+            $0.contains("platform:") && $0.contains(" Simulator,") && !$0.contains(":placeholder")
+        }
     }
     public static func parseDestinations(_ text: String, devices: Data) throws -> [Destination] {
         let groups = try JSONValue.decode(devices)["devices"].object.values
