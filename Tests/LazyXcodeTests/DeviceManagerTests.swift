@@ -70,7 +70,7 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
     let runner = DeviceManagerRunner()
     await runner.prepareIncompatibleDevice(error: discoveryFails)
     let model = deviceModel(runner: runner)
-    model.focusPane(3)
+    model.showDevices()
     await model.deviceRefresh?.value
     model.destinations = model.managedDevices
     model.destinationID = "current"
@@ -78,7 +78,7 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
     model.activateMenu()
     await model.pending?.value
     #expect(model.destinationID == "current")
-    #expect(model.pane == 3)
+    #expect(model.showingDevices)
     #expect(model.deviceStatus.contains(discoveryFails ? "Destination discovery failed" : "not available for scheme"))
     await model.shutdown()
 }
@@ -95,9 +95,9 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
     let runner = DeviceManagerRunner()
     let model = deviceModel(runner: runner)
     let view = WorkspaceView(model: model, live: false)
-    _ = view.handle(KeyPress(.character("4")))
+    _ = view.handle(KeyPress(.character("d")))
     await model.deviceRefresh?.value
-    #expect(model.pane == 3)
+    #expect(model.showingDevices)
     _ = view.handle(KeyPress(.character("n")))
     #expect(model.menu?.title == "New simulator · Runtime")
     _ = view.handle(KeyPress(.return))
@@ -120,6 +120,13 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
     #expect(model.selectedDevice?.name == "QA phone")
     #expect(model.destinations.contains { $0.id == model.selectedDeviceID })
     #expect(await runner.destinationCalls == 1)
+    _ = view.handle(KeyPress(.return))
+    #expect(model.menu?.title == "QA phone")
+    _ = view.handle(KeyPress(.return))
+    await model.pending?.value
+    #expect(model.destinationID == model.selectedDeviceID)
+    #expect(!model.showingDevices)
+    #expect(model.pane == 0)
     await model.shutdown()
 }
 
@@ -144,7 +151,7 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
 @Test @MainActor func shutdownFinishesSimulatorCreationWithoutStartingMoreDiscovery() async {
     let runner = DeviceManagerRunner()
     let model = deviceModel(runner: runner)
-    model.focusPane(3)
+    model.showDevices()
     await model.deviceRefresh?.value
     model.newSimulator()
     model.activateMenu()
@@ -160,7 +167,7 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
 @Test @MainActor func simulatorErrorsKeepDraftAndLastSuccessfulInventory() async {
     let runner = DeviceManagerRunner(failCreation: true, failPhysical: true)
     let model = deviceModel(runner: runner)
-    model.focusPane(3)
+    model.showDevices()
     await model.deviceRefresh?.value
     #expect(model.simulatorInventory != nil)
     #expect(model.deviceStatus.contains("Device service unavailable"))
@@ -182,7 +189,7 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
 @Test @MainActor func missingRuntimeExplainsHowToAddOneAndCloudCannotCreate() async {
     let runner = DeviceManagerRunner(noRuntimes: true)
     let model = deviceModel(runner: runner)
-    model.focusPane(3)
+    model.showDevices()
     await model.deviceRefresh?.value
     model.newSimulator()
     #expect(model.menu == nil)
@@ -195,7 +202,7 @@ func managerDoesNotSelectStaleOrIncompatibleBuildTarget(discoveryFails: Bool) as
 }
 
 @Test(arguments: [(120, 30), (44, 10)]) @MainActor
-func devicePaneAndNameFormRenderAcrossRetainedFrames(size: (Int, Int)) async {
+func devicesModalAndNameFormRenderAcrossRetainedFrames(size: (Int, Int)) async {
     let model = deviceModel()
     let renderer = DefaultRenderer()
     let view = WorkspaceView(model: model, live: false).frame(width: size.0, height: size.1)
@@ -203,8 +210,8 @@ func devicePaneAndNameFormRenderAcrossRetainedFrames(size: (Int, Int)) async {
         renderer.render(view, proposal: .init(width: size.0, height: size.1)).rasterSurface.lines.joined(
             separator: "\n")
     }
-    model.focusPane(3)
-    #expect(frame().contains("[4] Devices"))
+    model.showDevices()
+    #expect(frame().contains("[n] New simulator"))
     await model.deviceRefresh?.value
     #expect(frame().contains("No simulators"))
     model.newSimulator()
@@ -220,5 +227,57 @@ func devicePaneAndNameFormRenderAcrossRetainedFrames(size: (Int, Int)) async {
     await model.deviceRefresh?.value
     #expect(frame().contains("› QA phone"))
     #expect(!frame().contains("Name:"))
+    model.back()
+    #expect(!frame().contains("[n] New simulator"))
+    #expect(frame().contains("[1] Build"))
+    await model.shutdown()
+}
+
+@Test @MainActor func deviceFilterNarrowsSelectionWithoutTriggeringShortcuts() async {
+    let model = deviceModel()
+    let view = WorkspaceView(model: model, live: false)
+    let renderer = DefaultRenderer()
+    func frame() -> String {
+        renderer.render(view.frame(width: 120, height: 30), proposal: .init(width: 120, height: 30)).rasterSurface
+            .lines.joined(separator: "\n")
+    }
+    _ = view.handle(KeyPress(.character("d")))
+    await model.deviceRefresh?.value
+    model.physicalDevices = [
+        Destination(id: "phone", name: "iPhone 17", os: "27.0", platform: "iOS", state: "Connected", physical: true),
+        Destination(id: "mini", name: "iPad mini", os: "26.5", platform: "iOS", state: "Disconnected", physical: true),
+    ]
+    _ = view.handle(KeyPress(.character("/")))
+    for character in "ipad n" { _ = view.handle(KeyPress(.character(character))) }
+    #expect(model.menu == nil)
+    #expect(model.visibleDevices.isEmpty)
+    #expect(frame().contains("No matches"))
+    _ = view.handle(KeyPress(.backspace))
+    _ = view.handle(KeyPress(.backspace))
+    #expect(model.visibleDevices.map(\.id) == ["mini"])
+    #expect(model.selectedDevice?.id == "mini")
+    #expect(frame().contains("/ ipad▏"))
+    #expect(!frame().contains("iPhone 17"))
+    _ = view.handle(KeyPress(.return))
+    #expect(model.menu?.title == "iPad mini")
+    #expect(!model.filteringDevices)
+    _ = view.handle(KeyPress(.escape))
+    #expect(model.menu == nil)
+    _ = view.handle(KeyPress(.escape))
+    #expect(model.deviceQuery.isEmpty)
+    #expect(model.showingDevices)
+    #expect(model.visibleDevices.count == 2)
+    _ = view.handle(KeyPress(.character("/")))
+    _ = view.handle(KeyPress(.character("x")))
+    _ = view.handle(KeyPress(.character("d")))
+    #expect(model.showingDevices)
+    _ = view.handle(KeyPress(.return))
+    #expect(model.menu == nil)
+    #expect(model.simulatorDraft == nil)
+    _ = view.handle(KeyPress(.character("d")))
+    #expect(!model.showingDevices)
+    _ = view.handle(KeyPress(.character("d")))
+    #expect(model.showingDevices)
+    #expect(model.deviceQuery.isEmpty)
     await model.shutdown()
 }

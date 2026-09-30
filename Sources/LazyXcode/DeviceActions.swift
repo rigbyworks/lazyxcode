@@ -10,11 +10,30 @@ struct SimulatorDraft {
 
 extension WorkspaceModel {
     var managedDevices: [Destination] { physicalDevices + (simulatorInventory?.devices ?? []) }
-    var selectedDevice: Destination? { managedDevices.first { $0.id == selectedDeviceID } ?? managedDevices.first }
+    var visibleDevices: [Destination] {
+        guard !deviceQuery.isEmpty else { return managedDevices }
+        return managedDevices.filter {
+            "\($0.name) \($0.os) \($0.kindLabel) \($0.platform) \($0.state)".localizedCaseInsensitiveContains(
+                deviceQuery)
+        }
+    }
+    var selectedDevice: Destination? { visibleDevices.first { $0.id == selectedDeviceID } ?? visibleDevices.first }
 
-    func focusPane(_ value: Int) {
-        pane = value
-        if value == 3 { refreshDevices() }
+    func showDevices() {
+        presentDevices()
+        refreshDevices()
+    }
+
+    // Each opening starts unfiltered.
+    private func presentDevices() {
+        guard !showingDevices else { return }
+        clearDeviceFilter()
+        showingDevices = true
+    }
+
+    func clearDeviceFilter() {
+        deviceQuery = ""
+        filteringDevices = false
     }
 
     func refreshDevices(force: Bool = false) {
@@ -52,7 +71,7 @@ extension WorkspaceModel {
 
     func newSimulator() {
         guard !cloudMode, simulatorCreation == nil else { return }
-        pane = 3
+        presentDevices()
         guard simulatorInventory != nil else {
             refreshDevices()
             load("Loading simulator runtimes...") {
@@ -106,6 +125,7 @@ extension WorkspaceModel {
                     name: name, deviceType: draft.deviceType, runtime: draft.runtime)
                 simulatorDraft = nil
                 selectedDeviceID = id
+                clearDeviceFilter()
                 // Finish creation before allowing refreshes or a second submission.
                 simulatorCreation = nil
                 guard !shuttingDown else { return }
@@ -123,7 +143,7 @@ extension WorkspaceModel {
 
     func openDeviceActions() {
         guard let device = selectedDevice else {
-            if !cloudMode { newSimulator() }
+            if !cloudMode && managedDevices.isEmpty { newSimulator() }
             return
         }
         var actions: [MenuItem] = []
@@ -145,6 +165,7 @@ extension WorkspaceModel {
                         self.destinations = destinations
                         self.discoveryCache?.saveDestinations(destinations, scheme: scheme)
                         self.chooseDestination(device.id)
+                        self.showingDevices = false
                         self.pane = 0
                         self.status = "Selected \(device.label)"
                     }

@@ -1,22 +1,26 @@
 import LazyXcodeCore
 import SwiftTUI
 
-struct DevicePaneState {
+struct DevicesState {
     let devices: [Destination]
     let selectedID: String?
     let refreshing: Bool
     let cloudMode: Bool
+    let query: String
+    let filtering: Bool
 
     @MainActor init(model: WorkspaceModel) {
-        devices = model.managedDevices
+        devices = model.visibleDevices
         selectedID = model.selectedDevice?.id
         refreshing = model.deviceRefresh != nil
         cloudMode = model.cloudMode
+        query = model.deviceQuery
+        filtering = model.filteringDevices
     }
 }
 
-struct DevicePane: View {
-    let state: DevicePaneState
+struct DevicesView: View {
+    let state: DevicesState
     let width: Int
     let height: Int
 
@@ -26,15 +30,15 @@ struct DevicePane: View {
         let count = max(1, (height - 3) / (expanded ? 2 : 1))
         let start = max(0, min(index - count / 2, state.devices.count - count))
         Pane(
-            title: "[4] Devices", caption: state.devices.isEmpty ? "" : "\(index + 1)/\(state.devices.count)",
+            title: "Devices", caption: state.devices.isEmpty ? "" : "\(index + 1)/\(state.devices.count)",
             focused: true, width: width, height: height
         ) {
-            Text(state.cloudMode ? "Local devices · [R] Refresh" : "[n] New simulator  [R] Refresh").foregroundStyle(
-                .info
-            ).lineLimit(1)
+            Text(hint).foregroundStyle(.info).lineLimit(1)
             if state.devices.isEmpty {
-                Text(state.refreshing ? "Loading devices..." : "No simulators or devices found").foregroundStyle(.muted)
-                    .lineLimit(1)
+                Text(
+                    !state.query.isEmpty
+                        ? "No matches" : state.refreshing ? "Loading devices..." : "No simulators or devices found"
+                ).foregroundStyle(.muted).lineLimit(1)
             }
             ForEach(Array(state.devices.dropFirst(start).prefix(count))) { device in
                 VStack(alignment: .leading, spacing: 0) {
@@ -53,6 +57,13 @@ struct DevicePane: View {
                     device.id == state.selectedID ? SemanticShapeStyle.selection : SemanticShapeStyle.background)
             }
         }
+    }
+
+    private var hint: String {
+        if state.filtering { return "/ " + state.query + "▏" }
+        if !state.query.isEmpty { return "/ " + state.query + "  [/] Edit  [Esc] Clear" }
+        return state.cloudMode
+            ? "[/] Filter  [R] Refresh  [Esc] Close" : "[/] Filter  [n] New simulator  [R] Refresh  [Esc] Close"
     }
 }
 

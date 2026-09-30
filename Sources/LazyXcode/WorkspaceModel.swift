@@ -39,6 +39,9 @@ final class WorkspaceModel {
     var preferences: Preferences
     var status = "Loading schemes and destinations..."
     var pane = 0
+    var showingDevices = false
+    var deviceQuery = ""
+    var filteringDevices = false
     var simulatorInventory: SimulatorInventory?
     var physicalDevices: [Destination] = []
     var selectedDeviceID: String?
@@ -454,8 +457,8 @@ final class WorkspaceModel {
         tick()
     }
     func move(_ amount: Int) {
-        if pane == 3 {
-            let devices = managedDevices
+        if showingDevices {
+            let devices = visibleDevices
             let index = devices.firstIndex { $0.id == selectedDevice?.id } ?? 0
             if !devices.isEmpty { selectedDeviceID = devices[min(devices.count - 1, max(0, index + amount))].id }
         } else if pane == 0 {
@@ -483,8 +486,8 @@ final class WorkspaceModel {
         }
     }
     func jump(last: Bool) {
-        if pane == 3 {
-            selectedDeviceID = (last ? managedDevices.last : managedDevices.first)?.id
+        if showingDevices {
+            selectedDeviceID = (last ? visibleDevices.last : visibleDevices.first)?.id
         } else if pane == 1 {
             if cloudMode, let run = last ? cloudPage.items.last : cloudPage.items.first {
                 selectCloud(run.id)
@@ -560,7 +563,7 @@ final class WorkspaceModel {
         }
         guard let record = selectedRecord else {
             return
-                "Ready when you are\n\n[b] Build  [r] Run  [t] Test\n[1] Choose a scheme and destination\n\n[2] Browse activity history\n[3] Read output and results\n[4] Manage simulators and devices\n\nPress ? for keyboard help."
+                "Ready when you are\n\n[b] Build  [r] Run  [t] Test\n[1] Choose a scheme and destination\n\n[2] Browse activity history\n[3] Read output and results\n[d] Manage simulators and devices\n\nPress ? for keyboard help."
         }
         if raw { return pageEnd == nil ? OutputFormatter.rawWindow(outputText) : outputText }
         let header = "\(record.scheme) · \(record.simulator.label)\n\(record.statusLabel) · \(record.duration)\n\n"
@@ -607,6 +610,10 @@ final class WorkspaceModel {
             menu = menuParents.popLast()
             return
         }
+        if showingDevices {
+            if deviceQuery.isEmpty && !filteringDevices { showingDevices = false } else { clearDeviceFilter() }
+            return
+        }
         guard detailText != nil else { return }
         pausedOutput = nil
         detailText = nil
@@ -646,7 +653,7 @@ final class WorkspaceModel {
         }
     }
     func activate() {
-        if pane == 3 {
+        if showingDevices {
             openDeviceActions()
         } else if pane == 2, detailText != nil && !detailActions.isEmpty {
             showMenu("Result actions", detailActions)
@@ -703,7 +710,7 @@ final class WorkspaceModel {
             do { try await work() } catch {
                 if !Task.isCancelled && token == pendingID {
                     status = error.localizedDescription
-                    if pane == 3 { deviceStatus = status }
+                    if showingDevices { deviceStatus = status }
                 }
             }
         }
@@ -723,7 +730,8 @@ final class WorkspaceModel {
         status = NSPasteboard.general.setString(text, forType: .string) ? "Copied output" : "Copy failed"
     }
     func information() {
-        if pane == 3 {
+        if showingDevices {
+            showingDevices = false
             showDetail(
                 deviceStatus + "\n\n"
                     + (selectedDevice.map { "\($0.label)\n\($0.platform) · \($0.state)\n\($0.id)" } ?? "No devices"))

@@ -19,9 +19,14 @@ struct WorkspaceView: View {
                         Text("Terminal is too small. Current: \(width)×\(height). Required: 44×10.")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        WorkspacePanes(
-                            model: model, build: BuildPaneState(model: model), devices: DevicePaneState(model: model),
-                            layout: layout)
+                        WorkspacePanes(model: model, build: BuildPaneState(model: model), layout: layout)
+                    }
+                    if model.showingDevices {
+                        DevicesView(
+                            state: DevicesState(model: model), width: min(76, width - 2),
+                            height: min(16, layout.contentHeight)
+                        )
+                        .background(.background)
                     }
                     if let menu = model.menu {
                         MenuView(
@@ -114,12 +119,49 @@ struct WorkspaceView: View {
             }
             return .handled
         }
+        if model.showingDevices && model.filteringDevices {
+            switch press.key {
+            case .escape: model.clearDeviceFilter()
+            case .return:
+                model.filteringDevices = false
+                model.activate()
+            case .arrowUp: model.move(-1)
+            case .arrowDown: model.move(1)
+            case .pageUp: model.move(-10)
+            case .pageDown: model.move(10)
+            case .backspace: if !model.deviceQuery.isEmpty { model.deviceQuery.removeLast() }
+            case .character(let character): model.deviceQuery.append(character)
+            case .space: model.deviceQuery.append(" ")
+            default: break
+            }
+            return .handled
+        }
+        if model.showingDevices {
+            switch press.key {
+            case .arrowUp, .character("k"): model.move(-1)
+            case .arrowDown, .character("j"): model.move(1)
+            case .pageUp: model.move(-10)
+            case .pageDown: model.move(10)
+            case .home, .character("g"): model.jump(last: false)
+            case .end, .character("G"): model.jump(last: true)
+            case .return: model.activate()
+            case .escape: model.back()
+            case .character("d"): model.showingDevices = false
+            case .character("/"): model.filteringDevices = true
+            case .character("n"): model.newSimulator()
+            case .character("R"): model.refreshDevices(force: true)
+            case .character("i"): model.information()
+            case .character("q"): return model.requestQuit() ? .ignored : .handled
+            default: break
+            }
+            return .handled
+        }
         switch press.key {
-        case .tab: model.focusPane((model.pane + (press.modifiers.contains(.shift) ? 3 : 1)) % 4)
-        case .character("1"): model.focusPane(0)
-        case .character("2"): model.focusPane(1)
-        case .character("3"): model.focusPane(2)
-        case .character("4"): model.focusPane(3)
+        case .tab: model.pane = (model.pane + (press.modifiers.contains(.shift) ? 2 : 1)) % 3
+        case .character("1"): model.pane = 0
+        case .character("2"): model.pane = 1
+        case .character("3"): model.pane = 2
+        case .character("d"): model.showDevices()
         case .arrowUp, .character("k"): model.move(-1)
         case .arrowDown, .character("j"): model.move(1)
         case .pageUp: if model.pane >= 2 { model.move(-10) }
@@ -133,9 +175,7 @@ struct WorkspaceView: View {
         case .character("t"): model.testMenu()
         case .character("x"): model.cancelSelected()
         case .character("c"): if !model.cloudMode { model.requestClearCache() }
-        case .character("R"):
-            if model.pane == 3 { model.refreshDevices(force: true) } else if !model.cloudMode { model.reload() }
-        case .character("n"): if model.pane == 3 { model.newSimulator() }
+        case .character("R"): if !model.cloudMode { model.reload() }
         case .character("L"): if model.cloudMode && !model.cloudPage.next.isEmpty { model.refreshCloud(older: true) }
         case .character("a"): if model.cloudMode { model.openArtifacts() }
         case .character("o"): model.openProject()
@@ -160,7 +200,8 @@ struct WorkspaceView: View {
 
     static let help = """
         Navigation
-          1 / 2 / 3 / 4   Build / Activity / Output / Devices
+          1 / 2 / 3       Build / Activity / Output
+          d               Simulators and devices
           Tab / Shift-Tab Cycle panes
           j / k / arrows  Select or scroll
           g / G           First / last, top / follow output
@@ -180,9 +221,12 @@ struct WorkspaceView: View {
           [ / ]           Older / newer raw log page
 
         Devices
+          /               Filter by name, OS, kind, or state
           n               New simulator, in Local mode
           R               Refresh simulators and devices
           Enter           Device actions
+          Esc             Clear the filter, then close
+          d               Close
           Ctrl-U          Clear the new simulator name
 
         Cloud, read-only
@@ -214,7 +258,7 @@ private struct HeaderView: View {
             Text(" lazyxcode").bold().foregroundStyle(.info)
             Text(OutputFormatter.truncate(model.container.name, width: max(1, width - (width >= 80 ? 43 : 30)))).bold()
             Spacer(minLength: 0)
-            if width >= 80 { Text("[4] Devices").foregroundStyle(.info) }
+            if width >= 80 { Text("[d] Devices").foregroundStyle(.info) }
             Text(model.cloudMode ? "Cloud  [m] Local " : "Local  [m] Cloud ").foregroundStyle(.muted)
         }.frame(width: width, height: 1, alignment: .leading)
     }
@@ -225,12 +269,14 @@ private struct PaneTabs: View {
     let width: Int
     var body: some View {
         HStack(spacing: width >= 46 ? 1 : 0) {
-            ForEach(Array(["[1] Build", "[2] Activity", "[3] Output", "[4] Devices"].enumerated()), id: \.offset) {
+            ForEach(Array(["[1] Build", "[2] Activity", "[3] Output"].enumerated()), id: \.offset) {
                 index, title in
                 Text(title).bold()
                     .foregroundStyle(index == pane ? SemanticShapeStyle.info : SemanticShapeStyle.muted)
                     .background(index == pane ? SemanticShapeStyle.selection : SemanticShapeStyle.background)
             }
+            Spacer(minLength: 0)
+            if width >= 50 { Text("[d] Devices ").foregroundStyle(.info) }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 1)
     }
 }
@@ -240,13 +286,13 @@ private struct StatusView: View {
     let width: Int
     var body: some View {
         let status = OutputFormatter.sanitize(
-            model.pane == 3 && !model.loading
+            model.showingDevices && !model.loading
                 ? model.deviceStatus : model.cloudMode && !model.loading ? model.cloudStatus : model.status
         )
         .replacingOccurrences(of: "\n", with: " · ")
         HStack(spacing: 1) {
             let discovering =
-                model.pane == 3
+                model.showingDevices
                 ? model.deviceRefresh != nil || model.simulatorCreation != nil
                 : !model.cloudMode && model.discoveryStatus != nil
             if discovering { DiscoverySpinner().padding(.leading, 1) }
@@ -264,7 +310,6 @@ private struct StatusView: View {
 private struct WorkspacePanes: View {
     let model: WorkspaceModel
     let build: BuildPaneState
-    let devices: DevicePaneState
     let layout: WorkspaceLayout
     var body: some View {
         if layout.compact {
@@ -272,8 +317,6 @@ private struct WorkspacePanes: View {
                 BuildPane(state: build, width: layout.width, height: layout.contentHeight)
             } else if model.pane == 1 {
                 ActivityPane(model: model, width: layout.width, height: layout.contentHeight)
-            } else if model.pane == 3 {
-                DevicePane(state: devices, width: layout.width, height: layout.contentHeight)
             } else {
                 OutputPane(model: model, width: layout.width, height: layout.contentHeight)
             }
@@ -283,11 +326,7 @@ private struct WorkspacePanes: View {
                     BuildPane(state: build, width: layout.sidebar, height: layout.buildHeight)
                     ActivityPane(model: model, width: layout.sidebar, height: layout.contentHeight - layout.buildHeight)
                 }.frame(width: layout.sidebar, height: layout.contentHeight)
-                if model.pane == 3 {
-                    DevicePane(state: devices, width: layout.width - layout.sidebar, height: layout.contentHeight)
-                } else {
-                    OutputPane(model: model, width: layout.width - layout.sidebar, height: layout.contentHeight)
-                }
+                OutputPane(model: model, width: layout.width - layout.sidebar, height: layout.contentHeight)
             }.frame(width: layout.width, height: layout.contentHeight)
         }
     }
@@ -574,7 +613,7 @@ extension WorkspaceModel {
         var items: [MenuItem] = [
             MenuItem("Manage simulators and devices") {
                 self.closeMenu()
-                self.focusPane(3)
+                self.showDevices()
             },
             MenuItem("Open project in Xcode") {
                 self.closeMenu()

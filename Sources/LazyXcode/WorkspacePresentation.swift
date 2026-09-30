@@ -145,13 +145,22 @@ extension WorkspaceModel {
         }
         if menu != nil { return " [Enter] Select   [Esc] Back" }
         if loading { return " [Esc / x] Cancel   [:] Actions" }
+        if showingDevices && filteringDevices { return " [Enter] Actions   [Esc] Clear filter" }
+        // Workspace shortcuts are unavailable while Devices is open.
         let anchors =
-            width >= 64
-            ? "[:] Actions   [m] \(cloudMode ? "Local" : "Cloud")   [?] Help"
-            : "[:] Actions  [?] Help"
+            showingDevices
+            ? []
+            : [
+                width >= 64
+                    ? "[:] Actions   [m] \(cloudMode ? "Local" : "Cloud")   [?] Help" : "[:] Actions  [?] Help"
+            ]
         let hints: [String]
-        if pane == 3 {
-            hints = cloudMode ? ["[Enter] Details", "[R] Refresh"] : ["[n] New", "[Enter] Actions", "[R] Refresh"]
+        if showingDevices {
+            let close = deviceQuery.isEmpty ? "[Esc] Close" : "[Esc] Clear filter"
+            hints =
+                cloudMode
+                ? ["[/] Filter", "[Enter] Details", "[R] Refresh", close]
+                : ["[/] Filter", "[n] New", "[Enter] Actions", "[R] Refresh", close]
         } else if pane == 2 {
             hints =
                 detailText == nil
@@ -169,10 +178,10 @@ extension WorkspaceModel {
                 ? ["[Enter] Choose", "[r] Refresh"] : ["[Enter] Choose", "[b] Build", "[r] Run", "[t] Test"]
         }
         var visible: [String] = []
-        for hint in hints where (" " + (visible + [hint, anchors]).joined(separator: "   ")).count <= width {
+        for hint in hints where (" " + (visible + [hint] + anchors).joined(separator: "   ")).count <= width {
             visible.append(hint)
         }
-        return " " + (visible + [anchors]).joined(separator: "   ")
+        return " " + (visible + anchors).joined(separator: "   ")
     }
 }
 
