@@ -1,100 +1,74 @@
 # lazyxcode
 
-A keyboard-first terminal app for building, running, and testing Xcode projects, written in Swift with [Swift-TUI](https://github.com/SwiftTUI/swift-tui).
+A keyboard-driven terminal UI for building, running, and testing Xcode projects. Run it in a terminal next to your editor and skip the Xcode window for everyday build, run, and test loops.
 
-Run it beside your editor. Choose a project, scheme, and destination, then follow local builds, app output, tests, and coverage. An optional read-only Cloud mode browses Xcode Cloud runs and artifacts.
+Built in Swift with [Swift-TUI](https://github.com/SwiftTUI/swift-tui).
 
-## Build and install
+## Getting started
 
-You need macOS 15 or newer and a Swift 6.4 toolchain to compile lazyxcode. Xcode 27 includes a suitable compiler. The Xcode projects you work on can use a separately selected Xcode 16.3 or newer. Complete Xcode's first-launch setup and install the simulator runtimes your projects need.
+### Requirements
+
+- macOS 15 or newer
+- Full Xcode 16.3 or newer for the projects you build, with first-launch setup done and the simulator runtimes you need installed
+- To build lazyxcode from source, a Swift 6.4 toolchain (included with Xcode 27)
+
+### Install with Homebrew
+
+```sh
+brew install rigbyworks/tap/lazyxcode
+```
+
+### Build from source
 
 ```sh
 git clone https://github.com/rigbyworks/lazyxcode.git
 cd lazyxcode
-swift --version
 make install
 ```
 
-The executable goes into `~/.local/bin`. Add that directory to your shell's `PATH`, or choose a different directory with `make install BINDIR=/your/bin`. A source checkout reports `lazyxcode dev`; release builds use `make build VERSION=v0.1.0`.
+This installs to `~/.local/bin`. Add it to your `PATH`, or pick another directory with `make install BINDIR=/your/bin`.
 
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-lazyxcode --version
-lazyxcode --help
-```
-
-The Homebrew release formula in `scripts/homebrew-formula.rb.tmpl` builds with Xcode 27 or newer. Published versions are available through `brew install rigbyworks/tap/lazyxcode`; the tap changes only when a release is published.
-
-## Use it with a project
+### Run it
 
 ```sh
 cd /path/to/your/app
 lazyxcode
 ```
 
-Discovery checks the current directory for `.xcworkspace` and `.xcodeproj` directories. Workspaces appear first. A picker opens when there are several containers and no remembered choice.
+lazyxcode finds the `.xcworkspace` or `.xcodeproj` in the current directory. If there are several, it asks which one to open and remembers your choice.
 
-1. In Build, select Scheme or Target with the arrow keys and press Enter. Type in a picker to filter its rows.
-2. Press `b` to build or `r` to build and run. Simulator and device launches stream their console output until the app exits or you cancel the activity.
-3. Press `t` for all, unit, UI, or individual tests. Coverage is enabled by default and remembered per project.
-4. Select a completed test activity and press Enter to inspect results, coverage, attachments, or rerun failed tests.
-5. Press `d` to manage simulators and devices. Press `n` to create a simulator, choose an installed runtime and a supported device model, then enter a name. `Ctrl-U` clears the suggested name. Enter creates it. Esc closes the form, or stops a creation in progress. Quitting during creation asks for confirmation and then stops it.
+## Features
 
-The Devices window opens over the workspace and lists simulators and physical devices known to Xcode, including unavailable or disconnected entries. Press `/` to filter by name, OS, kind, or state; Enter opens actions for the highlighted device and Esc clears the filter. Press `R` to refresh, or Enter for device details, opening a simulator, and selecting a compatible build target. Esc or `d` closes it. Creation refreshes the Target picker automatically. If no runtimes are installed, add one in Xcode Settings > Components first. Device changes are available in Local mode.
+- **Build and run** on simulators, physical devices, and the Mac. App console output streams into the Output pane.
+- **Concise build output** with one row per build phase, timings, and deduplicated diagnostics. Press `v` for the raw log.
+- **Tests** for the whole scheme, unit or UI only, or a single test. Rerun only the failures.
+- **Results and coverage** browsing, drilling from target to file to function, with comparisons against earlier runs.
+- **Simulator and device management** to list, filter, create, and open simulators without leaving the terminal.
+- **Concurrent builds** for different scheme and destination pairs, each with its own DerivedData.
+- **Xcode Cloud** (optional, read-only): browse runs, logs, test results, and artifacts.
+- **Fast startup**: schemes and destinations are cached, then refreshed in the background.
 
-Schemes and destinations from the last day are cached between launches and shown immediately while Xcode refreshes them in the background. A Braille spinner marks each query while it loads or refreshes, including inside open pickers. When the metadata cache has expired, a remembered scheme lets destination discovery start alongside the scheme query. Reselecting the current scheme reuses fresh destinations. Cached devices may have disconnected since the last refresh. Destinations refresh every 15 seconds; opening the picker reuses results refreshed within that interval. Press `R` to force fresh scheme and destination discovery. Discovery respects the selected scheme and excludes unavailable simulators and placeholder destinations. `DEVELOPER_DIR` and `xcode-select` determine which Xcode tools run.
+## Usage
 
-## Keyboard reference
+The workspace has three panes: **Build** (scheme and destination), **Activity** (history of builds and tests), and **Output**. Press `1`, `2`, or `3` to focus one, or `?` for help at any time.
 
-| Key | Action |
-| --- | --- |
-| `1`, `2`, `3` | Focus Build, Activity, Output |
-| `Tab`, `Shift-Tab` | Cycle panes |
-| arrows, `j`, `k` | Select or scroll |
-| `g`, `G` | First/last activity or top/follow output |
-| Page Up, Page Down | Move ten rows |
-| Enter | Choose a setting or inspect results |
-| Esc | Back or cancel result loading |
-| `b` | Build locally |
-| `r` | Build and run locally; refresh Cloud runs |
-| `t` | Test scopes, individual discovery, coverage toggle |
-| `x` | Cancel the selected local activity or pending download/load |
-| `c` | Clear managed DerivedData when no activities are active |
-| `d` | Show or hide simulators and devices |
-| `R` | Reload local schemes and destinations; refresh devices in the Devices window |
-| `n` | Create a simulator in the Devices window |
-| `/` | Filter the Devices window |
-| `m` | Switch Local / Cloud |
-| `L` | Load older Cloud runs |
-| `a` | Download a Cloud artifact |
-| `v` | Toggle concise/raw output |
-| `y` | Copy displayed output |
-| `[`, `]` | Older/newer local raw log page |
-| `o` | Open the project in Xcode |
-| `i` | Show complete status, project, log, and result paths |
-| `:` | Search actions |
-| `?` | Keyboard help |
-| `q`, Ctrl-C | Quit and cancel active commands |
+1. In Build, pick a **Scheme** and **Target** with the arrow keys and Enter. Type to filter any picker.
+2. Press `b` to build or `r` to build and run.
+3. Press `t` to choose which tests to run. Coverage is on by default.
+4. Select a finished test activity in Activity and press Enter to see failures, coverage, and attachments, or rerun failed tests.
+5. Press `:` to search every available action.
 
-Inside a picker, typing filters the list, arrows select, Enter chooses, and Esc goes back. Pickers open over the workspace and retain the current selection. Cache clearing and quitting with active work require confirmation. The terminal needs at least 44 columns and 10 rows. Below 80 columns, numbered tabs show one full-width pane at a time; use `1`, `2`, `3`, or Tab to switch. Wider windows keep Build and Activity beside Output. Short windows collapse the unfocused Build pane. The bottom status line preserves messages, and the Output border shows the visible line range and whether the log is live or paused.
+### Simulators and devices
 
-## Builds, logs, and tests
+Press `d` to open the Devices window. It lists every simulator and physical device Xcode knows about.
 
-Different scheme/destination pairs can run concurrently. Each pair has a separate incremental DerivedData directory. A duplicate build is rejected while its cache is in use. Starting another activity for a pair with an attached running app stops that app's launch command first.
+- `/` filters by name, OS, kind, or state.
+- Enter opens actions for the highlighted device, like opening a simulator or making it the build target.
+- `n` creates a simulator from an installed runtime. If no runtimes are listed, install one in Xcode > Settings > Components.
 
-Simulator launches boot the device, open Device Hub or Simulator from the selected Xcode, install the app, and attach to its console. Physical devices use `devicectl`. Mac builds open the generated app.
+### Xcode Cloud
 
-Concise output shows one row per build phase, with accumulated wall-clock timings, deduplicated source diagnostics, grouped test suites, and the attached app console. Timings are stored in the log using the Go-compatible progress format, so reopening an activity preserves them. Repeated compiler work and long compiler commands do not fill the concise summary or trigger a summary-limit notice.
-
-The live raw and console windows retain up to 2,000 lines or 256 KiB, with explicit notices when older content is omitted. Complete output stays on disk. Scrolling pauses the displayed snapshot; `G` resumes following. Raw pages read 64 KiB at a time and expose every retained byte without silently dropping lines. Local and Cloud modes keep separate scroll and result-detail state.
-
-Individual-test discovery creates a cancellable activity using the same cache lock as a build. Selecting a parameterized test runs all its arguments. Failed-test reruns retain the original scheme, destination, and coverage choice; an empty failure list never starts the entire suite.
-
-Result menus browse test cases, show readable test failures, source locations, runs, and activities, export attachments, and open result bundles in Xcode. Coverage navigation supports targets, files, and functions. Comparisons use an earlier run of the same project, scheme, and destination, with each baseline's scope shown in the picker. Result details and coverage require Xcode 16.3 or newer.
-
-## Xcode Cloud
-
-Set a team App Store Connect API key before starting lazyxcode:
+Cloud mode needs an App Store Connect team API key. Set these before launching:
 
 ```sh
 export LAZYXCODE_ASC_ISSUER_ID="<issuer id>"
@@ -102,44 +76,90 @@ export LAZYXCODE_ASC_KEY_ID="<key id>"
 export LAZYXCODE_ASC_PRIVATE_KEY_PATH="$HOME/.private_keys/AuthKey_<key id>.p8"
 ```
 
-Press `m`, then choose a product and optional workflow. Local workflows do not require credentials. The client signs ten-minute ES256 tokens in memory and sends GET requests only. It warns when the key file is readable by other users. Key material and tokens are never saved in project preferences or logs.
+Press `m` to switch to Cloud, then choose a product and workflow. Cloud mode only reads data. It can't start, cancel, or rerun builds. lazyxcode never writes the key or its tokens to disk, and warns if other users can read the key file.
 
-The newest 25 runs load first. Press `L` for older runs, or move past the last row. Cloud mode refreshes every 15 seconds while a visible run is active and every 60 seconds otherwise. Failures preserve the last successful data and mark it stale. Transient failures and rate limits retry with backoff; authentication and permission failures are reported directly.
+### Choosing an Xcode
 
-Output includes workflow, branch, commit, actions, diagnostics, test summaries, and artifact names. Press `v` to download log artifacts, `a` to download other artifacts, or Enter to inspect a test-result archive. Downloads verify reported sizes and publish complete files atomically. Artifact requests never receive the App Store Connect token. Archive extraction rejects path traversal, symlinks, unsupported entry types, multiple result bundles, and more than 4 GiB of expanded content.
+lazyxcode uses whichever Xcode `DEVELOPER_DIR` or `xcode-select` points to.
 
-Cloud mode cannot change workflows, start builds, cancel builds, or rerun tests. Downloaded artifacts have no retention limit. API keys cannot be changed inside the app; restart after changing environment variables.
+## Keybindings
 
-## State and compatibility
+Press `?` in the app for the full list.
 
-Preferences, the newest 100 activities plus older active activities, logs, and test results live below `$XDG_STATE_HOME/lazyxcode`, or `~/.local/state/lazyxcode`. DerivedData and Cloud artifacts live below `$XDG_CACHE_HOME/lazyxcode`, or `~/.cache/lazyxcode`.
+| Key | Action |
+| --- | --- |
+| `1` `2` `3` | Focus Build, Activity, Output |
+| `Tab` / `Shift-Tab` | Cycle panes |
+| `↑` `↓` / `j` `k` | Move or scroll |
+| `g` / `G` | Jump to top / bottom and follow output |
+| `PgUp` / `PgDn` | Move ten rows |
+| `Enter` | Choose, or open results |
+| `Esc` | Back or cancel |
+| `b` | Build |
+| `r` | Build and run (refresh runs in Cloud mode) |
+| `t` | Run tests |
+| `x` | Cancel the selected activity |
+| `c` | Clear this project's DerivedData |
+| `R` | Reload schemes and destinations |
+| `d` | Simulators and devices |
+| `v` | Toggle concise / raw output |
+| `y` | Copy output |
+| `[` / `]` | Older / newer raw log page |
+| `o` | Open the project in Xcode |
+| `i` | Show log, result, and project paths |
+| `m` | Switch Local / Cloud |
+| `L` | Load older Cloud runs |
+| `a` | Download a Cloud artifact |
+| `:` | Search actions |
+| `?` | Help |
+| `q` / `Ctrl-C` | Quit |
 
-The Swift rewrite reads the earlier Go version's preferences and history. It uses the same project and cache hashes. Activities left active by a previous process become cancelled on load. Expired history entries remove only their managed logs and results.
-
-Clearing the cache removes this project's managed DerivedData. Logs, results, project files, Cloud artifacts, and Xcode's global DerivedData remain available. Data from the older command name `lazy-xcode` is not migrated.
-
-## Development
-
-```sh
-swift build
-swift run lazyxcode --snapshot
-make test
-make check
-make build
-```
-
-`make check` checks Swift formatting, runs tests, builds the executable, and checks the CLI outside a project. Format edits with `swift format format --in-place --recursive Sources Tests Package.swift`.
-
-`Sources/LazyXcodeCore` owns Xcode commands, process cancellation, build activities, storage, results, and Cloud networking. `Sources/LazyXcode` owns the observable workspace state and Swift-TUI views. The command runner and URL sessions are replaceable test boundaries. UI tests render the real views at normal and 44×10 sizes and drive the same keyboard handlers used by the terminal. Parity tests cover phase aggregation and retained timings, concise diagnostics and test suites, paused output, mode state, confirmations, simulator test startup, command-stream separation, and Cloud pagination. Set `LAZYXCODE_SNAPSHOT_DIR=/tmp/lazyxcode-snapshots` when running `swift test` to export build-output and target-picker renderer snapshots.
-
-The default tests need no simulator, credentials, or network after package resolution. `make terminal-smoke` drives the real terminal runtime against a disposable project. Set `LAZYXCODE_DEVICE_SMOKE=1` to also create a simulator through the Devices window, verify it in the Target picker, and delete it afterward. `make smoke` opts into a disposable simulator integration test. See [RELEASING.md](RELEASING.md) for release and package checks.
+The terminal must be at least 44×10. Below 80 columns, the panes become tabs.
 
 ## Troubleshooting
 
-Check `swift --version` if the package cannot compile. Swift-TUI 0.13.5 requires Swift 6.4; a compiler from an older Xcode is insufficient.
+- **The package won't compile.** Check `swift --version`. Building lazyxcode requires Swift 6.4.
+- **Discovery or builds fail.** Check `xcode-select -p` and `xcodebuild -version`. Select a full Xcode install rather than the Command Line Tools, make sure the scheme is shared, and install a compatible simulator runtime. Then press `R`.
+- **A scheme or device is missing.** Press `R` to skip the cache and query Xcode again.
+- **Results or coverage are missing.** Press `i` for the full log path, or `v` to read the raw output.
 
-Check `xcode-select -p` and `xcodebuild -version` if discovery or builds fail. Select full Xcode with `DEVELOPER_DIR`, share the scheme, and install a compatible simulator runtime. Press `R` to reload. If a test bundle is missing coverage or results, its complete log remains available through `i` and raw output.
+### Where lazyxcode stores data
+
+| What | Location |
+| --- | --- |
+| Preferences, history, logs, test results | `$XDG_STATE_HOME/lazyxcode` (default `~/.local/state/lazyxcode`) |
+| DerivedData and Cloud artifacts | `$XDG_CACHE_HOME/lazyxcode` (default `~/.cache/lazyxcode`) |
+
+lazyxcode keeps the newest 100 activities. `c` clears only this project's managed DerivedData. Xcode's global DerivedData is never touched.
+
+## Contributing
+
+Issues and pull requests are welcome. For larger changes, open an issue first so we can agree on the approach.
+
+```sh
+swift build
+swift run lazyxcode --snapshot   # render a sample workspace without Xcode
+make test                        # unit and terminal UI tests
+make check                       # formatting, tests, build, and CLI checks
+```
+
+Run `make check` before opening a PR. To fix formatting:
+
+```sh
+swift format format --in-place --recursive Sources Tests Package.swift
+```
+
+The default tests don't need a simulator, credentials, or network access. `make terminal-smoke` drives the real terminal against a throwaway project, and `make smoke` runs a simulator integration test.
+
+The code is split into two modules:
+
+- `Sources/LazyXcodeCore` runs Xcode commands and handles build activities, storage, results, and Xcode Cloud networking.
+- `Sources/LazyXcode` holds the workspace state and the Swift-TUI views.
+
+Maintainers: see [RELEASING.md](RELEASING.md) for the release process.
 
 ## License
 
-[MIT](LICENSE), copyright Rigby Works. The `BRAILLE_SIX` spinner frames are adapted from [throbber-widgets-tui](https://github.com/arkbig/throbber-widgets-tui), under its [zlib license](LICENSES/throbber-widgets-tui.txt).
+[MIT](LICENSE) © Rigby Works.
+
+The Braille spinner frames are adapted from [throbber-widgets-tui](https://github.com/arkbig/throbber-widgets-tui) under the [zlib license](LICENSES/throbber-widgets-tui.txt).
