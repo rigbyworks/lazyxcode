@@ -4,6 +4,8 @@ A keyboard-driven terminal UI for building, running, and testing Xcode projects.
 
 Built in Swift with [Swift-TUI](https://github.com/SwiftTUI/swift-tui).
 
+![lazyxcode building and installing an iOS app on a simulator](docs/screenshot.png)
+
 ## Getting started
 
 ### Requirements
