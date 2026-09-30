@@ -48,7 +48,11 @@ actor DeviceManagerRunner: CommandRunning {
         if executable == "xcodebuild" {
             destinationCalls += 1
             if destinationError { throw AppError("Destination discovery failed") }
-            if !compatible { return Data("Available destinations for the scheme:".utf8) }
+            if !compatible {
+                return Data(
+                    "Destinations incompatible with the scheme:\n{ platform:iOS Simulator, id:\(id), name:QA phone }"
+                        .utf8)
+            }
             return Data(
                 "Available destinations for the scheme:\n{ platform:iOS Simulator, id:\(id), OS:27.0, name:QA phone }"
                     .utf8)
