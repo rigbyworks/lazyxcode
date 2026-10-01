@@ -5,7 +5,7 @@ Releases are tagged source distributions. The Homebrew formula builds the Swift 
 ## One-time setup
 
 - Keep `rigbyworks/lazyxcode` and `rigbyworks/homebrew-tap` public.
-- Add the `HOMEBREW_TAP_TOKEN` Actions secret to `rigbyworks/lazyxcode`. Use a fine-grained GitHub token restricted to `rigbyworks/homebrew-tap`, with Contents and Pull requests read/write access. The ordinary source repository Actions token cannot push to the separate tap.
+- Add `HOMEBREW_TAP_TOKEN` as a secret of the `release` environment in `rigbyworks/lazyxcode`, not as a repository secret. Only `main` and `v*` tags can deploy to that environment, so other branches can't read the token. Use a fine-grained GitHub token restricted to `rigbyworks/homebrew-tap`, with Contents and Pull requests read/write access. The ordinary source repository Actions token cannot push to the separate tap. Renew the token before it expires.
 - Keep Actions enabled on both repositories. Require successful CI before merging release changes and successful Package checks before merging formula updates.
 
 ## Publish a version
