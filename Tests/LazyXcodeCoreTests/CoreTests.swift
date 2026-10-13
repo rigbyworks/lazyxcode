@@ -71,6 +71,46 @@ private actor FlakyDestinationRunner: CommandRunning {
     #expect(await runner.destinationCalls == 3)
 }
 
+@Test func macDestinationsDoNotRetryForUnrelatedInstalledSimulators() async throws {
+    actor Runner: CommandRunning {
+        var destinationCalls = 0
+        func run(_ executable: String, _ arguments: [String], output: (@Sendable (Data) -> Void)?) async throws -> Data
+        {
+            if executable == "xcrun" {
+                return Data(#"{"devices":{"iOS":[{"udid":"sim-1","isAvailable":true}]}}"#.utf8)
+            }
+            destinationCalls += 1
+            return Data("Available destinations for the scheme:\n  { platform:macOS, id:mac-1, name:My Mac }".utf8)
+        }
+    }
+    let runner = Runner()
+    let destinations = try await XcodeClient(runner: runner).destinations(
+        Container(kind: .project, name: "Mac", path: "/Mac"), scheme: "Mac")
+    #expect(destinations.map(\.id) == ["mac-1"])
+    #expect(await runner.destinationCalls == 1)
+}
+
+@Test func metadataDiscoverySkipsRemotePackageUpdates() async throws {
+    actor Runner: CommandRunning {
+        var discoveryArguments: [[String]] = []
+        func run(_ executable: String, _ arguments: [String], output: (@Sendable (Data) -> Void)?) async throws -> Data
+        {
+            if executable == "xcrun" { return Data(#"{"devices":{}}"#.utf8) }
+            discoveryArguments.append(arguments)
+            if arguments.contains("-list") { return Data(#"{"project":{"schemes":["App"]}}"#.utf8) }
+            return Data("Available destinations for the scheme:\n  { platform:macOS, id:mac-1, name:My Mac }".utf8)
+        }
+    }
+    let runner = Runner()
+    let client = XcodeClient(runner: runner)
+    let container = Container(kind: .project, name: "App", path: "/App")
+    #expect(try await client.schemes(container) == ["App"])
+    #expect(try await client.destinations(container, scheme: "App").map(\.id) == ["mac-1"])
+    let arguments = await runner.discoveryArguments
+    #expect(arguments.count == 2)
+    #expect(arguments.allSatisfy { $0.contains("-skipPackageUpdates") })
+}
+
 @Test func testCaseIdentifiersKeepBundleAndIgnoreRepetitions() throws {
     let data = Data(
         #"{"testNodes":[{"nodeType":"Unit test bundle","name":"AppTests.xctest","children":[{"nodeType":"Test Case","nodeIdentifier":"Suite/test()","nodeIdentifierURL":"test://bundle/Suite/test","result":"Failed","children":[{"nodeType":"Test Case","nodeIdentifier":"argument"}]}]}]}"#

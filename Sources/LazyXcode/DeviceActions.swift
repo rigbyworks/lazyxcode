@@ -222,6 +222,7 @@ extension WorkspaceModel {
                         }
                         self.destinations = destinations
                         self.lastDestinationRefresh = Date()
+                        self.recentDestinations[scheme] = (destinations, self.lastDestinationRefresh)
                         self.discoveryCache?.saveDestinations(destinations, scheme: scheme)
                         self.useAsBuildTarget(device)
                     }

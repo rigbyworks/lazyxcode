@@ -97,6 +97,59 @@ private actor DiscoveryRunner: CommandRunning {
     await model.shutdown()
 }
 
+@Test(arguments: ["App", "Removed"]) @MainActor
+func coldStartupShowsLocalSchemesAndStartsDestinationsBeforeXcodeListsSchemes(local: String) async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let project = root.appendingPathComponent("App.xcodeproj")
+    let directory = project.appendingPathComponent("xcshareddata/xcschemes")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data("<Scheme version=\"1.3\"/>".utf8).write(to: directory.appendingPathComponent(local + ".xcscheme"))
+    let runner = DiscoveryRunner(holdSchemes: true)
+    let model = WorkspaceModel(
+        containers: [Container(kind: .project, name: "App", path: project.path)],
+        client: XcodeClient(runner: runner))
+    model.reload(useCache: true)
+    #expect(model.schemes == [local])
+    #expect(model.scheme == local)
+    #expect(model.destinationRefresh != nil)
+    await model.destinationRefresh?.value
+    #expect(model.destination?.id == "live")
+    await runner.releaseSchemes()
+    await model.discovery?.value
+    await model.destinationRefresh?.value
+    #expect(model.schemes == ["App", "New"])
+    #expect(model.scheme == "App")
+    #expect(await runner.destinationCalls == (local == "App" ? 1 : 2))
+    await model.shutdown()
+}
+
+@Test @MainActor func applicationStartsDiscoveryBeforeRenderingFirstFrame() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let project = root.appendingPathComponent("App.xcodeproj")
+    let directory = project.appendingPathComponent("xcshareddata/xcschemes")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data("<Scheme version=\"1.3\"/>".utf8).write(to: directory.appendingPathComponent("FirstFrame.xcscheme"))
+    let runner = DiscoveryRunner(holdSchemes: true)
+    let container = Container(kind: .project, name: "App", path: project.path)
+    let model = WorkspaceModel(containers: [container], client: XcodeClient(runner: runner))
+    model.managers[project.path] = try BuildManager(
+        store: ProjectStore(container: container, stateRoot: root, cacheRoot: root))
+    _ = TerminalApplication(model: model)
+    #expect(model.discovery != nil)
+    #expect(model.destinationRefresh != nil)
+    let frame = RenderOnce.render(
+        WorkspaceView(model: model, live: false).frame(width: 120, height: 30), width: 120,
+        environment: ["NO_COLOR": "1"], isStdoutTTY: false)
+    #expect(frame.contains("FirstFrame"))
+    await model.destinationRefresh?.value
+    await runner.releaseSchemes()
+    await model.discovery?.value
+    await model.destinationRefresh?.value
+    await model.shutdown()
+}
+
 @Test @MainActor func failedBackgroundDiscoveryPreservesCachedChoices() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
@@ -114,6 +167,30 @@ private actor DiscoveryRunner: CommandRunning {
     #expect(model.destination?.id == "cached")
     #expect(model.status.contains("Discovery unavailable"))
     #expect(cache.destinations(scheme: "App")?.map(\.id) == ["cached"])
+    await model.shutdown()
+}
+
+@Test @MainActor func localSchemesPreserveRememberedAutomaticSchemeWhileXcodeValidatesIt() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let project = root.appendingPathComponent("App.xcodeproj")
+    let directory = project.appendingPathComponent("xcshareddata/xcschemes")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try Data("<Scheme version=\"1.3\"/>".utf8).write(to: directory.appendingPathComponent("App.xcscheme"))
+    let runner = DiscoveryRunner(holdSchemes: true)
+    let model = WorkspaceModel(
+        containers: [Container(kind: .project, name: "App", path: project.path)],
+        client: XcodeClient(runner: runner))
+    model.preferences.schemes[project.path] = "New"
+    model.reload(useCache: true)
+    #expect(model.scheme == "New")
+    await model.destinationRefresh?.value
+    await runner.releaseSchemes()
+    await model.discovery?.value
+    await model.destinationRefresh?.value
+    #expect(model.schemes == ["App", "New"])
+    #expect(model.scheme == "New")
+    #expect(await runner.destinationCalls == 1)
     await model.shutdown()
 }
 
@@ -180,6 +257,33 @@ func discoveryShowsBrailleSpinnerUntilSuccessOrFailure(fail: Bool) async {
     #expect(model.destinationRefresh == nil)
     await model.destinationRefresh?.value
     #expect(await runner.destinationCalls == 1)
+    await model.shutdown()
+}
+
+@Test(arguments: [false, true]) @MainActor
+func switchingBackToSchemeReusesItsRecentDestinationsUntilExpiredOrReloaded(expired: Bool) async {
+    let runner = DiscoveryRunner()
+    let model = WorkspaceModel(
+        containers: [Container(kind: .project, name: "App", path: "/DiscoveryTestApp")],
+        client: XcodeClient(runner: runner))
+    model.chooseScheme("App")
+    await model.destinationRefresh?.value
+    model.chooseScheme("New")
+    await model.destinationRefresh?.value
+    if expired { model.recentDestinations["App"]?.refreshedAt = Date().addingTimeInterval(-16) }
+    model.chooseScheme("App")
+    #expect(model.destination?.id == "live")
+    #expect((model.destinationRefresh != nil) == expired)
+    await model.destinationRefresh?.value
+    #expect(await runner.destinationCalls == (expired ? 3 : 2))
+    model.reload()
+    await model.discovery?.value
+    await model.destinationRefresh?.value
+    #expect(await runner.destinationCalls == (expired ? 4 : 3))
+    model.chooseScheme("New")
+    #expect(model.destinationRefresh != nil)
+    await model.destinationRefresh?.value
+    #expect(await runner.destinationCalls == (expired ? 5 : 4))
     await model.shutdown()
 }
 
