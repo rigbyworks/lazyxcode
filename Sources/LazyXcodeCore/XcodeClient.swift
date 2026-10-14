@@ -27,18 +27,18 @@ public struct XcodeClient: Sendable {
         }
     }
     public func schemes(_ container: Container) async throws -> [String] {
-        let data = try await runner.run("xcodebuild", container.arguments + ["-list", "-json"])
+        let data = try await runner.run("xcodebuild", container.arguments + ["-list", "-json", "-skipPackageUpdates"])
         let document = try JSONValue.decode(data)
         return document[container.kind.rawValue]["schemes"].array.map(\.string).sorted()
     }
     public func destinations(_ container: Container, scheme: String) async throws -> [Destination] {
-        let arguments = container.arguments + ["-scheme", scheme, "-showdestinations"]
+        let arguments = container.arguments + ["-scheme", scheme, "-showdestinations", "-skipPackageUpdates"]
         async let first = runner.run("xcodebuild", arguments)
         let devices = try await runner.run("xcrun", ["simctl", "list", "devices", "available", "--json"])
         var text = String(decoding: try await first, as: UTF8.self)
-        // Xcode sometimes answers before CoreSimulator loads and leaves out every simulator, even incompatible
-        // ones. Accepting that answer would drop the selected simulator, so ask again.
-        if try Self.hasAvailableSimulators(devices) {
+        // Retry when Xcode advertises a simulator platform but CoreSimulator has not loaded its devices yet.
+        // Installed simulators alone say nothing about whether this scheme supports them.
+        if text.contains(" Simulator,"), try Self.hasAvailableSimulators(devices) {
             var attempts = 1
             while !Self.listsSimulators(text) {
                 guard attempts < 3 else { throw AppError("Xcode listed no simulators. Press R to try again.") }

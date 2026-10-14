@@ -65,11 +65,15 @@ actor BlockingRunner: CommandRunning {
     } catch { #expect(error.localizedDescription.contains("useful-error")) }
 }
 
-@Test func runnerCancellationTerminatesProcessAndDrainsPipe() async throws {
+@Test(arguments: [
+    "echo ready; sleep 60",
+    "trap 'exit 0' TERM; /bin/sh -c 'trap \"\" TERM; echo ready; exec sleep 10' & wait",
+])
+func runnerCancellationTerminatesProcessAndDrainsPipe(script: String) async throws {
     let started = Mutex(false)
     let task = Task {
         try await CommandRunner().run(
-            "/bin/sh", ["-c", "echo ready; sleep 60"], output: { _ in started.withLock { $0 = true } })
+            "/bin/sh", ["-c", script], output: { _ in started.withLock { $0 = true } })
     }
     let deadline = Date().addingTimeInterval(5)
     while !started.withLock({ $0 }) && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }

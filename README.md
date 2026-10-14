@@ -50,7 +50,7 @@ lazyxcode finds the `.xcworkspace` or `.xcodeproj` in the current directory. If 
 - **Simulator and device management** to list, filter, create, and open simulators without leaving the terminal.
 - **Concurrent builds** for different scheme and destination pairs, each with its own DerivedData.
 - **Xcode Cloud** (optional, read-only): browse runs, logs, test results, and artifacts.
-- **Fast startup**: schemes and destinations are cached, then refreshed in the background.
+- **Fast startup**: schemes appear from cache or project files, destinations appear from cache, and Xcode refreshes both in the background. Recent destinations are reused when switching schemes.
 
 ## Usage
 

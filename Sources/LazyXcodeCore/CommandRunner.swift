@@ -21,6 +21,7 @@ extension CommandRunning {
 private final class ProcessHandle: Sendable {
     struct State {
         var process: Process?
+        var processGroup: pid_t?
         var cancelled = false
     }
     let state = Mutex(State())
@@ -30,26 +31,42 @@ private final class ProcessHandle: Sendable {
             guard !state.cancelled else { throw CancellationError() }
             try process.run()
             state.process = process
+            let pid = process.processIdentifier
+            // Foundation gives subprocesses their own group. Never signal our own group.
+            if getpgid(pid) == pid { state.processGroup = pid }
+        }
+    }
+
+    func finish() {
+        state.withLock { state in
+            state.process = nil
+            state.processGroup = nil
         }
     }
 
     func cancel() {
-        state.withLock { state in
+        let shouldEscalate = state.withLock { state in
+            guard !state.cancelled else { return false }
             state.cancelled = true
-            guard let process = state.process, process.isRunning else { return }
-            signal(process, SIGTERM)
+            guard state.process != nil else { return false }
+            signal(state, SIGTERM)
+            return true
         }
+        guard shouldEscalate else { return }
         DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [self] in
             state.withLock { state in
-                if let process = state.process, process.isRunning { signal(process, SIGKILL) }
+                signal(state, SIGKILL)
             }
         }
     }
 
-    private func signal(_ process: Process, _ signal: Int32) {
-        let pid = process.processIdentifier
-        // Foundation gives subprocesses their own group. Never signal our own group.
-        if getpgid(pid) == pid { _ = Darwin.kill(-pid, signal) } else { _ = Darwin.kill(pid, signal) }
+    private func signal(_ state: State, _ signal: Int32) {
+        // Children can keep the pipes open after their parent exits.
+        if let group = state.processGroup {
+            _ = Darwin.kill(-group, signal)
+        } else if let process = state.process, process.isRunning {
+            _ = Darwin.kill(process.processIdentifier, signal)
+        }
     }
 }
 
@@ -65,6 +82,7 @@ public struct CommandRunner: CommandRunning {
             try Task.checkCancellation()
             let data: Data = try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
+                    defer { handle.finish() }
                     let process = Process()
                     process.executableURL = URL(
                         fileURLWithPath: executable.hasPrefix("/") ? executable : "/usr/bin/\(executable)")

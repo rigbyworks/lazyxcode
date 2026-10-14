@@ -116,6 +116,7 @@ final class WorkspaceModel {
     @ObservationIgnored var pageEnd: UInt64?
     @ObservationIgnored var newerPages: [UInt64?] = []
     @ObservationIgnored var lastDestinationRefresh = Date.distantPast
+    @ObservationIgnored var recentDestinations: [String: (destinations: [Destination], refreshedAt: Date)] = [:]
     @ObservationIgnored var discoveryRecordID: String?
 
     init(containers: [Container], preferences: Preferences = Preferences(), client: XcodeClient = XcodeClient()) {
@@ -173,6 +174,7 @@ final class WorkspaceModel {
         schemes = []
         scheme = ""
         destinations = []
+        recentDestinations = [:]
         destinationID = ""
         selectedRecordID = nil
         savedLocalOutput = OutputPosition()
@@ -211,16 +213,21 @@ final class WorkspaceModel {
             status = "Stop active activities before reloading project metadata"
             return
         }
+        recentDestinations = [:]
         discovery?.cancel()
         discoveryID = UUID()
         let requestID = discoveryID
         let token = generation
         let container = container
         let cache = discoveryCache
-        if useCache, let cached = cache?.schemes(), !cached.isEmpty {
-            schemes = cached
+        let cached = useCache ? cache?.schemes() ?? [] : []
+        let initial = useCache && cached.isEmpty ? client.localSchemes(container) : cached
+        if !initial.isEmpty {
+            schemes = initial
             let remembered = preferences.schemes[container.path] ?? ""
-            chooseScheme(cached.contains(remembered) ? remembered : cached[0])
+            // Local files omit automatic and package schemes. Let Xcode validate the remembered choice.
+            let keepRemembered = !remembered.isEmpty && (cached.isEmpty || initial.contains(remembered))
+            chooseScheme(keepRemembered ? remembered : initial[0])
         } else if scheme.isEmpty, let remembered = preferences.schemes[container.path], !remembered.isEmpty {
             // Start destination discovery while Xcode validates the remembered scheme.
             // The fresh scheme list below replaces it if the scheme was removed.
@@ -270,17 +277,19 @@ final class WorkspaceModel {
         destinationRefreshID = UUID()
         destinationRefresh = nil
         scheme = value
-        destinations = value.isEmpty ? [] : discoveryCache?.destinations(scheme: value) ?? []
+        let recent = recentDestinations[value]
+        destinations = value.isEmpty ? [] : recent?.destinations ?? discoveryCache?.destinations(scheme: value) ?? []
         destinationID = preferences.simulators[container.path + "\0" + scheme] ?? ""
         if !destinations.isEmpty, !destinations.contains(where: { $0.id == destinationID }) {
             destinationID = destinations[0].id
         }
         preferences.schemes[container.path] = value
         savePreferences()
-        lastDestinationRefresh = .distantPast
+        lastDestinationRefresh = recent?.refreshedAt ?? .distantPast
         if !value.isEmpty {
             status = destinations.isEmpty ? "Loading destinations..." : "Refreshing destinations..."
-            refreshDestinations(force: true)
+            refreshDestinations()
+            updateDestinationStatus()
         }
     }
     func refreshDestinations(force: Bool = false) {
@@ -304,6 +313,7 @@ final class WorkspaceModel {
             do {
                 let found = try await client.destinations(container, scheme: scheme)
                 guard !Task.isCancelled, token == generation, requestID == destinationRefreshID else { return }
+                recentDestinations[scheme] = (found, Date())
                 cache?.saveDestinations(found, scheme: scheme)
                 destinations = found
                 if !found.contains(where: { $0.id == destinationID }) { destinationID = found.first?.id ?? "" }

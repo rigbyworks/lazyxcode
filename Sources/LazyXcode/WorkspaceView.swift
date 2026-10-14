@@ -57,7 +57,6 @@ struct WorkspaceView: View {
         }
         .task {
             guard live else { return }
-            model.start()
             while !Task.isCancelled {
                 model.tick()
                 do { try await Task.sleep(for: .milliseconds(50)) } catch { break }
@@ -704,7 +703,10 @@ extension WorkspaceModel {
 struct TerminalApplication: SwiftTUIRuntime.App {
     var model: WorkspaceModel?
     nonisolated init() { model = nil }
-    init(model: WorkspaceModel) { self.model = model }
+    init(model: WorkspaceModel) {
+        self.model = model
+        model.start()
+    }
     var body: some Scene {
         WindowGroup("lazyxcode") {
             if let model { WorkspaceView(model: model) }
