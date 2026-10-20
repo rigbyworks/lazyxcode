@@ -109,6 +109,83 @@ private actor FlakyDestinationRunner: CommandRunning {
     let arguments = await runner.discoveryArguments
     #expect(arguments.count == 2)
     #expect(arguments.allSatisfy { $0.contains("-skipPackageUpdates") })
+    #expect(arguments.allSatisfy { $0.contains("-disableAutomaticPackageResolution") })
+}
+
+/// What `CommandRunner` reports when Xcode 27.1 cannot check out a pinned revision missing from the package cache.
+private let checkoutFailure = """
+    xcodebuild exited 74:
+    Resolve Package Graph
+    Checking out 1.1.0 of package ‘dep’
+    Couldn’t check out revision ‘8b6482043dd132e1e505d761c99b3ca04d40d3dd’:
+        fatal: unable to read tree (8b6482043dd132e1e505d761c99b3ca04d40d3dd)
+    fatalError
+    2026-10-20 02:44:00.578 xcodebuild[25111:54644891] Writing error result bundle to /tmp/ResultBundle.xcresult
+    xcodebuild: error: Could not resolve package dependencies:
+      fatalError
+      Couldn’t check out revision ‘8b6482043dd132e1e505d761c99b3ca04d40d3dd’:
+    """
+
+/// Fails every metadata query with `failure` while `failsWhen` matches its arguments.
+private actor PackageRunner: CommandRunning {
+    let failure: String
+    let failsWhen: @Sendable ([String]) -> Bool
+    var xcodebuildArguments: [[String]] = []
+    init(failure: String = checkoutFailure, failsWhen: @escaping @Sendable ([String]) -> Bool) {
+        self.failure = failure
+        self.failsWhen = failsWhen
+    }
+    func run(_ executable: String, _ arguments: [String], output: (@Sendable (Data) -> Void)?) async throws -> Data {
+        if executable == "xcrun" { return Data(#"{"devices":{}}"#.utf8) }
+        xcodebuildArguments.append(arguments)
+        if failsWhen(arguments) { throw AppError(failure) }
+        if arguments.contains("-list") { return Data(#"{"project":{"schemes":["App"]}}"#.utf8) }
+        return Data("Available destinations for the scheme:\n  { platform:macOS, id:mac-1, name:My Mac }".utf8)
+    }
+}
+
+@Test func discoveryResolvesPackagesWhenTheCacheLacksAPinnedRevision() async throws {
+    let runner = PackageRunner { $0.contains("-skipPackageUpdates") }
+    let client = XcodeClient(runner: runner)
+    let container = Container(kind: .project, name: "App", path: "/App")
+    #expect(try await client.schemes(container) == ["App"])
+    #expect(try await client.destinations(container, scheme: "App").map(\.id) == ["mac-1"])
+    let packageFlags = ["-skipPackageUpdates", "-disableAutomaticPackageResolution"]
+    #expect(
+        await runner.xcodebuildArguments == [
+            ["-project", "/App", "-list", "-json"] + packageFlags, ["-project", "/App", "-list", "-json"],
+            ["-project", "/App", "-scheme", "App", "-showdestinations"] + packageFlags,
+            ["-project", "/App", "-scheme", "App", "-showdestinations"],
+        ])
+}
+
+@Test func unresolvablePackagesExplainTheNextStep() async throws {
+    let runner = PackageRunner { _ in true }
+    let error = await #expect(throws: AppError.self) {
+        try await XcodeClient(runner: runner).destinations(
+            Container(kind: .project, name: "App", path: "/App"), scheme: "App")
+    }
+    let message = try #require(error?.message)
+    #expect(message.hasPrefix("Xcode could not resolve this project's Swift packages"))
+    #expect(message.contains("File > Packages > Reset Package Caches, then press R."))
+    #expect(
+        message.hasSuffix(
+            """
+            Couldn’t check out revision ‘8b6482043dd132e1e505d761c99b3ca04d40d3dd’:
+            fatal: unable to read tree (8b6482043dd132e1e505d761c99b3ca04d40d3dd)
+            """))
+    #expect(!message.contains("fatalError") && !message.contains("result bundle"))
+    #expect(await runner.xcodebuildArguments.count == 2)
+}
+
+@Test func otherXcodeFailuresDoNotRetry() async throws {
+    let failure = "xcodebuild exited 65:\nxcodebuild: error: The project does not contain a scheme named \"App\"."
+    let runner = PackageRunner(failure: failure) { _ in true }
+    let error = await #expect(throws: AppError.self) {
+        try await XcodeClient(runner: runner).schemes(Container(kind: .project, name: "App", path: "/App"))
+    }
+    #expect(error?.message == failure)
+    #expect(await runner.xcodebuildArguments.count == 1)
 }
 
 @Test func testCaseIdentifiersKeepBundleAndIgnoreRepetitions() throws {

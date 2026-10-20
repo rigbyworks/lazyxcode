@@ -27,13 +27,13 @@ public struct XcodeClient: Sendable {
         }
     }
     public func schemes(_ container: Container) async throws -> [String] {
-        let data = try await runner.run("xcodebuild", container.arguments + ["-list", "-json", "-skipPackageUpdates"])
+        let data = try await metadata(container.arguments + ["-list", "-json"])
         let document = try JSONValue.decode(data)
         return document[container.kind.rawValue]["schemes"].array.map(\.string).sorted()
     }
     public func destinations(_ container: Container, scheme: String) async throws -> [Destination] {
-        let arguments = container.arguments + ["-scheme", scheme, "-showdestinations", "-skipPackageUpdates"]
-        async let first = runner.run("xcodebuild", arguments)
+        let arguments = container.arguments + ["-scheme", scheme, "-showdestinations"]
+        async let first = metadata(arguments)
         let devices = try await runner.run("xcrun", ["simctl", "list", "devices", "available", "--json"])
         var text = String(decoding: try await first, as: UTF8.self)
         // Retry when Xcode advertises a simulator platform but CoreSimulator has not loaded its devices yet.
@@ -43,10 +43,41 @@ public struct XcodeClient: Sendable {
             while !Self.listsSimulators(text) {
                 guard attempts < 3 else { throw AppError("Xcode listed no simulators. Press R to try again.") }
                 attempts += 1
-                text = String(decoding: try await runner.run("xcodebuild", arguments), as: UTF8.self)
+                text = String(decoding: try await metadata(arguments), as: UTF8.self)
             }
         }
         return try Self.parseDestinations(text, devices: devices)
+    }
+    /// Asks Xcode from the local package cache without fetching or rewriting Package.resolved. When the cache lacks
+    /// a pinned revision, falls back to resolving packages the way Xcode does on open, which fetches what is missing.
+    func metadata(_ arguments: [String]) async throws -> Data {
+        do {
+            return try await runner.run(
+                "xcodebuild", arguments + ["-skipPackageUpdates", "-disableAutomaticPackageResolution"])
+        } catch let error as AppError where error.message.contains(Self.packageResolutionFailure) {
+            do { return try await runner.run("xcodebuild", arguments) } catch let error as AppError
+                where error.message.contains(Self.packageResolutionFailure)
+            {
+                throw Self.packageResolutionError(error.message)
+            }
+        }
+    }
+    static let packageResolutionFailure = "Could not resolve package dependencies:"
+    /// Xcode ends its summary with SwiftPM's reason, such as "Couldn't check out revision '…':", but prints the git
+    /// error that explains it earlier in the output.
+    static func packageResolutionError(_ output: String) -> AppError {
+        let lines = output.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+        var reasons: [String] = []
+        if let start = lines.lastIndex(where: { $0.hasSuffix(packageResolutionFailure) }) {
+            reasons += lines[(start + 1)...].filter { !$0.isEmpty && $0 != "fatalError" && $0 != "…" }
+        }
+        for line in lines where line.hasPrefix("fatal:") && !reasons.contains(line) { reasons.append(line) }
+        return AppError(
+            """
+            Xcode could not resolve this project's Swift packages, so it cannot list schemes or destinations. \
+            Open the project in Xcode and choose File > Packages > Reset Package Caches, then press R. If that fails, \
+            check that this Mac can sign in to each package repository and that the pinned revisions still exist.
+            """ + reasons.prefix(8).map { "\n" + $0 }.joined())
     }
     static func hasAvailableSimulators(_ devices: Data) throws -> Bool {
         try JSONValue.decode(devices)["devices"].object.values.flatMap(\.array).contains { $0["isAvailable"].bool }

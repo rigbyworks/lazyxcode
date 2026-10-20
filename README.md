@@ -124,6 +124,7 @@ The terminal must be at least 44×10. Below 80 columns, the panes become tabs.
 
 - **The package won't compile.** Check `swift --version`. Building lazyxcode requires Swift 6.4.
 - **Discovery or builds fail.** Check `xcode-select -p` and `xcodebuild -version`. Select a full Xcode install rather than the Command Line Tools, make sure the scheme is shared, and install a compatible simulator runtime. Then press `R`.
+- **Xcode could not resolve the project's Swift packages.** lazyxcode lists schemes and destinations from the local package cache. When the cache lacks a pinned revision, it asks Xcode to fetch it. If that also fails, open the project in Xcode, choose File > Packages > Reset Package Caches, and press `R`. For private packages, check that this Mac can sign in to the repository.
 - **A scheme or device is missing.** Press `R` to skip the cache and query Xcode again.
 - **Results or coverage are missing.** Press `i` for the full log path, or `v` to read the raw output.
 
