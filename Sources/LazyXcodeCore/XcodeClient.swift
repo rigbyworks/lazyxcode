@@ -49,7 +49,8 @@ public struct XcodeClient: Sendable {
         return try Self.parseDestinations(text, devices: devices)
     }
     /// Asks Xcode from the local package cache without fetching or rewriting Package.resolved. When the cache lacks
-    /// a pinned revision, falls back to resolving packages the way Xcode does on open, which fetches what is missing.
+    /// a pinned revision, falls back to resolving packages the way Xcode does on open: it fetches what is missing, and
+    /// like Xcode it may write Package.resolved when the file is missing or out of date.
     func metadata(_ arguments: [String]) async throws -> Data {
         do {
             return try await runner.run(
