@@ -155,6 +155,20 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         os.write(master, b"k")
         wait_until(lambda: build_value("Scheme").startswith("› "), "scheme focus during startup", timeout=5)
         wait_until(lambda: "".join(screen.rows[-2]).strip().startswith("Ready"), "discovery completion")
+        # A colour-scheme report (DEC mode 2031) re-probes the colours and redraws with the replies. None of its
+        # bytes may act as a key: "?" opens help and "2" switches panes. The report arrives split across reads.
+        assert b"\x1b[?2031h" in transcript, "Colour-scheme reports were not enabled"
+        before_report = screen.text()
+        offset = len(transcript)
+        os.write(master, b"\x1b[?99")
+        time.sleep(0.05)
+        os.write(master, b"7;2n")
+        wait_until(lambda: b"\x1b]11;?\x07" in transcript[offset:] and b"\x1b[c" in transcript[offset:],
+                   "colour queries after a scheme report", offset, timeout=5)
+        offset = len(transcript)
+        os.write(master, b"\x1b]10;rgb:0000/0000/0000\x1b\\\x1b]11;rgb:f7f7/f7f7/f7f7\x07\x1b[?62;22c")
+        wait_until(lambda: b"48;2;247;247;247" in transcript[offset:] and screen.text() == before_report,
+                   "the same screen redrawn with the light background", offset, timeout=5)
         # Keep one live renderer: fresh snapshots cannot catch stale view reuse.
         for scheme in ["SmokeAlt", "Smoke", "SmokeAlt"]:
             send(b"\r", b"Type to filter")
@@ -248,7 +262,12 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
         process.wait(timeout=1)
         assert process.returncode == 0, f"Exit status {process.returncode}"
         assert termios.tcgetattr(slave) == original, "Terminal settings were not restored"
-        print("PASS: startup focus, scheme/target selection and focus redraws, cache confirmation, action search, help, compact resize and navigation, Cloud mode, quit, terminal restoration")
+        session_end = transcript[transcript.rfind(b"\x1b[?2031h"):]
+        assert -1 < session_end.rfind(b"\x1b[?2031l") < session_end.rfind(b"\x1b[?1049l"), \
+            "Colour-scheme reports were not disabled before leaving the alternate screen"
+        # Startup asks once and the single report once; nothing else may query the terminal.
+        assert transcript.count(b"\x1b]11;?\x07") == 2, "Unexpected colour queries"
+        print("PASS: startup focus, colour-scheme report redraw, scheme/target selection and focus redraws, cache confirmation, action search, help, compact resize and navigation, Cloud mode, quit, terminal restoration")
     finally:
         if process.poll() is None:
             process.terminate()

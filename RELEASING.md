@@ -60,6 +60,6 @@ The full checks run `bash scripts/test-homebrew.sh` on a clean macOS host. It pa
 
 ## Swift rewrite
 
-Swift-TUI is pinned to 0.13.5 and requires Swift 6.4. The release build embeds the version in the executable, restores the checkout's development version afterward, and needs no resource bundle beside the installed command. Existing `lazyxcode` preferences, project hashes, history, logs, and caches are compatible with the Go implementation.
+Swift-TUI is pinned to `0.13.5-rigbyworks.2` from the [rigbyworks fork](https://github.com/rigbyworks/swift-tui), which is upstream 0.13.5 plus support for the terminal's light/dark reports. It requires Swift 6.4. Fork releases are tagged `<upstream version>-rigbyworks.<n>` on a branch cut from the upstream tag. The release build embeds the version in the executable, restores the checkout's development version afterward, and needs no resource bundle beside the installed command. Existing `lazyxcode` preferences, project hashes, history, logs, and caches are compatible with the Go implementation.
 
 The main checks, release, and Homebrew jobs use the `xcode-27` hosted preview image, which includes Swift 6.4. The terminal smoke script drives the target picker, cache confirmation, action search, help, Cloud mode, and clean exit through a real PTY. `make check` and the simulator smoke test can use a standalone Swift 6.4 toolchain with an older selected Xcode.
