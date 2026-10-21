@@ -120,6 +120,8 @@ Press `?` in the app for the full list.
 
 The terminal must be at least 44×10. Below 80 columns, the panes become tabs.
 
+Colours come from the terminal's theme. In terminals that report light/dark changes, such as Ghostty, lazyxcode follows a switch without a restart.
+
 ## Troubleshooting
 
 - **The package won't compile.** Check `swift --version`. Building lazyxcode requires Swift 6.4.
