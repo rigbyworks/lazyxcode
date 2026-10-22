@@ -101,6 +101,8 @@ with tempfile.TemporaryDirectory(prefix="lazyxcode-terminal-") as directory:
     environment = dict(
         os.environ,
         TERM="xterm-256color",
+        # The colour-scheme step expects 24-bit colours; without this the depth depends on the caller's terminal.
+        COLORTERM="truecolor",
         LANG="en_US.UTF-8",
         XDG_STATE_HOME=directory + "/state",
         XDG_CACHE_HOME=directory + "/cache",
