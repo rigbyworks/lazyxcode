@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [.executable(name: "lazyxcode", targets: ["LazyXcode"])],
     dependencies: [
-        .package(url: "https://github.com/SwiftTUI/swift-tui", exact: "0.13.5"),
+        .package(url: "https://github.com/rigbyworks/swift-tui", exact: "0.13.5-rigbyworks.2"),
         .package(url: "https://github.com/weichsel/ZIPFoundation", from: "0.9.20"),
     ],
     targets: [
