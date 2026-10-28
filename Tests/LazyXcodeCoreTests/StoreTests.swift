@@ -20,7 +20,7 @@ struct TemporaryProject {
     func record(id: String = UUID().uuidString) -> BuildRecord {
         BuildRecord(
             id: id, container: container, scheme: "App", destination: Destination(id: "phone", name: "Phone"),
-            operation: .build, derivedData: store.derivedData(scheme: "App", destination: "phone").path,
+            operation: .build, derivedData: store.derivedData(slot: 0).path,
             logPath: store.logURL(id: id).path)
     }
 }
@@ -61,7 +61,7 @@ struct TemporaryProject {
     log.append(Data("complete transcript".utf8))
     let result = try fixture.store.resultDirectory(id: record.id)
     try FileManager.default.createDirectory(atPath: record.derivedDataKey, withIntermediateDirectories: true)
-    try fixture.store.clearDerivedData()
+    #expect(fixture.store.clearDerivedData().removed == 1)
     #expect(FileManager.default.fileExists(atPath: record.logPath))
     #expect(FileManager.default.fileExists(atPath: result.path))
     #expect(!FileManager.default.fileExists(atPath: record.derivedDataKey))

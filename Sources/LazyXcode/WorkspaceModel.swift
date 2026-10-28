@@ -93,6 +93,9 @@ final class WorkspaceModel {
         var paused: String?
     }
     @ObservationIgnored var cacheSizeTask: Task<Void, Never>?
+    /// Nil in tests and snapshots, which must not prune the real cache.
+    @ObservationIgnored let buildCache: BuildCache?
+    @ObservationIgnored var cachePruning: Task<Void, Never>?
     @ObservationIgnored var wrappedCache: (text: String, width: Int, lines: [OutputLine])?
 
     @ObservationIgnored let client: XcodeClient
@@ -119,10 +122,14 @@ final class WorkspaceModel {
     @ObservationIgnored var recentDestinations: [String: (destinations: [Destination], refreshedAt: Date)] = [:]
     @ObservationIgnored var discoveryRecordID: String?
 
-    init(containers: [Container], preferences: Preferences = Preferences(), client: XcodeClient = XcodeClient()) {
+    init(
+        containers: [Container], preferences: Preferences = Preferences(), client: XcodeClient = XcodeClient(),
+        buildCache: BuildCache? = nil
+    ) {
         self.containers = containers
         self.preferences = preferences
         self.client = client
+        self.buildCache = buildCache
         let directory = URL(fileURLWithPath: containers[0].path).deletingLastPathComponent().path
         container = containers.first { $0.path == preferences.containers[directory] } ?? containers[0]
     }
@@ -155,6 +162,29 @@ final class WorkspaceModel {
         let needsPicker = containers.count > 1 && preferences.containers[directory] == nil
         chooseContainer(container)
         if needsPicker { openContainers() }
+        startCachePruning()
+    }
+    /// Prunes managed DerivedData at launch and every few hours, at background priority.
+    func startCachePruning() {
+        guard let buildCache, cachePruning == nil else { return }
+        var policy = CachePolicy()
+        do { policy = try CachePolicy(environment: ProcessInfo.processInfo.environment) } catch {
+            status = error.localizedDescription
+        }
+        cachePruning = Task { [policy] in
+            while !Task.isCancelled {
+                let keeping = manager?.store
+                let prune = Task.detached(priority: .background) {
+                    buildCache.prune(policy: policy, keeping: keeping)
+                }
+                _ = await withTaskCancellationHandler {
+                    await prune.value
+                } onCancel: {
+                    prune.cancel()
+                }
+                try? await Task.sleep(for: .seconds(6 * 3600))
+            }
+        }
     }
     func savePreferences() {
         do { try preferences.save() } catch { status = "Could not save preferences: \(error.localizedDescription)" }
@@ -766,6 +796,8 @@ final class WorkspaceModel {
             ].compactMap { $0 }
             + Array(queuedRequests.values)
         for task in background { task.cancel() }
+        // Pruning is not awaited. Anything it leaves half-deleted is in the trash, which the next prune empties.
+        cachePruning?.cancel()
         cancelPending()
         for task in background { await task.value }
         for manager in managers.values { await manager.shutdown() }

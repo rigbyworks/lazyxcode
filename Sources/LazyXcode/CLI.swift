@@ -55,7 +55,8 @@ enum EntryPoint {
                 throw AppError("no .xcworkspace or .xcodeproj found in the current directory")
             }
             try await XcodeClient().checkEnvironment()
-            let model = WorkspaceModel(containers: containers, preferences: try Preferences.load())
+            let model = WorkspaceModel(
+                containers: containers, preferences: try Preferences.load(), buildCache: BuildCache())
             do { try await SwiftTUILauncher.run(TerminalApplication(model: model)) } catch {
                 await model.shutdown()
                 throw error

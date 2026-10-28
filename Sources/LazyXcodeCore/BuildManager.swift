@@ -9,6 +9,7 @@ public final class BuildManager {
     public let client: XcodeClient
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var logs: [String: ActivityLog] = [:]
+    @ObservationIgnored private var leases: [String: SlotLease] = [:]
     public init(store: ProjectStore, client: XcodeClient = XcodeClient()) throws {
         self.store = store
         self.client = client
@@ -21,8 +22,9 @@ public final class BuildManager {
         targets: [String] = [], scope: String = "All tests", coverage: Bool = true
     ) async throws -> String {
         try Task.checkCancellation()
-        let derivedData = store.derivedData(scheme: scheme, destination: destination.id).path
-        while let existing = records.first(where: { $0.derivedDataKey == derivedData && $0.phase.active }) {
+        while let existing = records.first(where: {
+            $0.scheme == scheme && $0.simulator.id == destination.id && $0.phase.active
+        }) {
             guard existing.phase == .running, let task = tasks[existing.id] else {
                 throw AppError("An activity is already using this scheme and destination")
             }
@@ -30,25 +32,33 @@ public final class BuildManager {
             await task.value
             try Task.checkCancellation()
         }
+        let lease = try store.leaseDerivedData()
         let id = UUID().uuidString
         var record = BuildRecord(
             id: id, container: container, scheme: scheme, destination: destination,
-            operation: operation, derivedData: derivedData, logPath: store.logURL(id: id).path)
-        if operation == .test || operation == .discoverTests {
-            let directory = try store.resultDirectory(id: id)
-            record.testScope = scope
-            record.testTargets = targets
-            record.coverage = coverage
-            if operation == .test {
-                record.resultBundlePath = directory.appendingPathComponent("TestResults.xcresult").path
-            } else {
-                record.enumerationPath = directory.appendingPathComponent("tests.json").path
+            operation: operation, derivedData: lease.url.path, logPath: store.logURL(id: id).path)
+        let log: ActivityLog
+        do {
+            if operation == .test || operation == .discoverTests {
+                let directory = try store.resultDirectory(id: id)
+                record.testScope = scope
+                record.testTargets = targets
+                record.coverage = coverage
+                if operation == .test {
+                    record.resultBundlePath = directory.appendingPathComponent("TestResults.xcresult").path
+                } else {
+                    record.enumerationPath = directory.appendingPathComponent("tests.json").path
+                }
             }
+            log = try ActivityLog(url: store.logURL(id: id))
+            try store.save([record] + records)
+        } catch {
+            lease.release()
+            throw error
         }
-        let log = try ActivityLog(url: store.logURL(id: id))
-        try store.save([record] + records)
         records.insert(record, at: 0)
         logs[id] = log
+        leases[id] = lease
         tasks[id] = Task { await self.execute(record, log: log) }
         return id
     }
@@ -56,6 +66,7 @@ public final class BuildManager {
         defer {
             tasks[record.id] = nil
             logs[record.id] = nil
+            leases.removeValue(forKey: record.id)?.release()
             trimHistory()
         }
         do {
@@ -95,6 +106,8 @@ public final class BuildManager {
         records[index].phase = phase
         records[index].error = error
         if !phase.active { records[index].finishedAt = Date() }
+        // A launched app no longer needs DerivedData, so another build may use the slot.
+        if !phase.active || phase == .running { leases.removeValue(forKey: id)?.release() }
         let line = "\n[lazyxcode \(Date().formatted(.iso8601))] \(phase.rawValue)\(error.map { ": " + $0 } ?? "")\n"
         logs[id]?.append(Data(line.utf8))
         do { try store.save(records) } catch { lastError = "Could not save history: \(error.localizedDescription)" }
@@ -108,8 +121,9 @@ public final class BuildManager {
         for task in running { task.cancel() }
         for task in running { await task.value }
     }
-    public func clearCache() throws {
+    @discardableResult
+    public func clearCache() throws -> BuildCache.Report {
         guard !active else { throw AppError("Stop active activities before clearing DerivedData") }
-        try store.clearDerivedData()
+        return store.clearDerivedData()
     }
 }
