@@ -124,9 +124,4 @@ public final class BuildManager {
         for task in running { task.cancel() }
         for task in running { await task.value }
     }
-    @discardableResult
-    public func clearCache() throws -> BuildCache.Report {
-        guard !active else { throw AppError("Stop active activities before clearing DerivedData") }
-        return store.clearDerivedData()
-    }
 }

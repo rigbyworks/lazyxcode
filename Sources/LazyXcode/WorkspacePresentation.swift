@@ -30,6 +30,7 @@ struct BuildPaneState: Equatable {
     let settings: [Setting]
     let destinationDetail: String
     let cacheDetail: String
+    var cacheWarning = false
 
     @MainActor init(model: WorkspaceModel) {
         cloudMode = model.cloudMode
@@ -63,8 +64,15 @@ struct BuildPaneState: Equatable {
             destinationDetail =
                 model.destination.map { [$0.platform, $0.os].filter { !$0.isEmpty }.joined(separator: " · ") }
                 ?? "[R] Refresh destinations"
-            cacheDetail =
-                "Cache \(ByteCountFormatter.string(fromByteCount: model.cacheBytes, countStyle: .file)) · [c] Clear"
+            let project = WorkspaceModel.bytes(model.cacheBytes)
+            if let free = model.freeBytes, free < model.lowSpaceThreshold {
+                cacheDetail = "Disk \(WorkspaceModel.bytes(free)) free · [c] Clear"
+                cacheWarning = true
+            } else if let total = model.cacheTotalBytes, total > model.cacheBytes {
+                cacheDetail = "Cache \(project) of \(WorkspaceModel.bytes(total)) · [c]"
+            } else {
+                cacheDetail = "Cache \(project) · [c] Clear"
+            }
         }
     }
 }
@@ -85,47 +93,78 @@ extension WorkspaceModel {
         return false
     }
     func requestClearCache() {
-        guard manager?.active != true else {
+        var items = [MenuItem("Keep cache") { self.closeMenu() }]
+        if manager?.active != true {
+            items.append(
+                MenuItem(
+                    "Clear this project's DerivedData (\(Self.bytes(cacheBytes))). Keep history, logs, and results."
+                ) {
+                    self.closeMenu()
+                    self.clearCache(.project)
+                })
+        }
+        if let others = otherProjectsBytes {
+            items.append(
+                MenuItem("Clear other projects' DerivedData (\(Self.bytes(others)))") {
+                    self.closeMenu()
+                    self.clearCache(.others)
+                })
+        }
+        guard items.count > 1 else {
             status = "Stop active activities before clearing DerivedData"
             return
         }
-        showMenu(
-            "Clear build cache?",
-            [
-                MenuItem("Keep cache") { self.closeMenu() },
-                MenuItem("Clear DerivedData. Keep history, logs, and results.") {
-                    self.closeMenu()
-                    self.clearCache()
-                    self.refreshCacheSize()
-                },
-            ])
+        showMenu("Clear build cache?", items)
         menu?.searchable = false
     }
+    /// DerivedData of projects other than this one, when there is any.
+    var otherProjectsBytes: Int64? {
+        guard buildCache != nil, let total = cacheTotalBytes, total > cacheBytes else { return nil }
+        return total - cacheBytes
+    }
+    func warnLowSpace(_ free: Int64, then start: @escaping @MainActor () -> Void) {
+        var items: [MenuItem] = []
+        if let others = otherProjectsBytes {
+            items.append(
+                MenuItem("Clear other projects' DerivedData (\(Self.bytes(others))), then continue") {
+                    self.lowSpaceAcknowledged = true
+                    self.closeMenu()
+                    self.clearCache(.others, then: start)
+                })
+        }
+        items.append(
+            MenuItem("Continue anyway") {
+                self.lowSpaceAcknowledged = true
+                self.closeMenu()
+                start()
+            })
+        items.append(MenuItem("Cancel") { self.closeMenu() })
+        showMenu("Only \(Self.bytes(free)) of disk space left", items)
+        menu?.searchable = false
+    }
+    /// Measures this project's DerivedData and, outside tests, every project's and the free disk space.
     func refreshCacheSize() {
         cacheSizeTask?.cancel()
-        guard let root = manager?.store.cache.appendingPathComponent("derived-data") else { return }
+        guard let store = manager?.store else { return }
+        let all = buildCache
         let token = generation
-        let scan = Task.detached {
-            var size: Int64 = 0
-            let files = FileManager.default.enumerator(
-                at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey])
-            while let url = files?.nextObject() as? URL {
-                if Task.isCancelled { break }
-                if let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
-                    values.isRegularFile == true
-                {
-                    size += Int64(values.fileSize ?? 0)
-                }
-            }
-            return size
+        let scan = Task.detached(priority: .utility) {
+            (
+                project: store.buildCache.size(project: store.cache),
+                total: all.map { $0.usage().reduce(0) { $0 + $1.bytes } },
+                free: all.flatMap { BuildCache.availableCapacity(at: $0.root) }
+            )
         }
         cacheSizeTask = Task {
-            let size = await withTaskCancellationHandler {
+            let sizes = await withTaskCancellationHandler {
                 await scan.value
             } onCancel: {
                 scan.cancel()
             }
-            if !Task.isCancelled && token == generation { cacheBytes = size }
+            guard !Task.isCancelled && token == generation else { return }
+            cacheBytes = sizes.project
+            cacheTotalBytes = sizes.total
+            freeBytes = sizes.free
         }
     }
     var cloudInformation: String {

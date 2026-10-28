@@ -35,7 +35,6 @@ actor BlockingRunner: CommandRunning {
     #expect(
         Set(manager.records.map(\.derivedDataKey))
             == [fixture.store.derivedData(slot: 0).path, fixture.store.derivedData(slot: 1).path])
-    #expect(throws: AppError.self) { try manager.clearCache() }
     await manager.shutdown()
     #expect(manager.records.allSatisfy { $0.phase == .cancelled })
     #expect(!manager.active)

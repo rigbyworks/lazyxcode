@@ -390,7 +390,7 @@ private struct BuildPane: View {
                 if height >= 10 {
                     Text("")
                     Text("[b] Build  [r] Run  [t] Test").foregroundStyle(.info).lineLimit(1)
-                    Text(state.cacheDetail).foregroundStyle(.muted).lineLimit(1)
+                    Text(state.cacheDetail).foregroundStyle(state.cacheWarning ? .warning : .muted).lineLimit(1)
                 }
             }
         }
