@@ -211,3 +211,54 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
     #expect(BuildCache.isMissing("/private/tmp/lazyxcode-deleted-\(UUID().uuidString)/App.xcodeproj"))
     #expect(!BuildCache.isMissing("/"))
 }
+
+@Test func pruneKeepsRecentlyBuiltLegacyDirectoriesOverTheLimit() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let store = try fixture.project("App")
+    let legacy = store.cache.appendingPathComponent("derived-data/fedcba9876543210")
+    let logs = legacy.appendingPathComponent("Logs/Build")
+    try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+    try Data(count: 100_000).write(to: logs.appendingPathComponent("Build.xcactivitylog"))
+    let report = fixture.cache.prune(policy: CachePolicy(limit: 0))
+    #expect(exists(legacy))
+    #expect(report.removed == 0)
+}
+
+@Test @MainActor func macAppKeepsItsSlotLeasedUntilItHasLaunched() async throws {
+    actor Runner: CommandRunning {
+        let slot: URL
+        var leasedAtLaunch: Bool?
+        init(slot: URL) { self.slot = slot }
+        func run(_ executable: String, _ arguments: [String], output: (@Sendable (Data) -> Void)?) async throws -> Data
+        {
+            if arguments.contains("-showBuildSettings") {
+                let settings = [
+                    "WRAPPER_EXTENSION": "app", "PRODUCT_BUNDLE_IDENTIFIER": "com.example.App",
+                    "FULL_PRODUCT_NAME": "App.app", "TARGET_BUILD_DIR": slot.appendingPathComponent("Build").path,
+                ]
+                return try JSONSerialization.data(withJSONObject: [["buildSettings": settings]])
+            }
+            if executable == "open" {
+                let lease = try SlotLease.acquire(slot, recordsUse: false)
+                leasedAtLaunch = lease == nil
+                lease?.release()
+            }
+            return Data()
+        }
+    }
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let store = try fixture.project("App")
+    let runner = Runner(slot: store.derivedData(slot: 0))
+    let manager = try BuildManager(store: store, client: XcodeClient(runner: runner))
+    _ = try await manager.start(
+        container: store.container, scheme: "App", destination: Destination(id: "mac", name: "Mac", platform: "macOS"),
+        operation: .run)
+    let deadline = Date().addingTimeInterval(5)
+    while manager.active && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(manager.records.first?.phase == .succeeded)
+    #expect(await runner.leasedAtLaunch == true)
+    let lease = try #require(try SlotLease.acquire(store.derivedData(slot: 0), recordsUse: false))
+    lease.release()
+}

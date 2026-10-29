@@ -128,7 +128,7 @@ public struct BuildCache: Sendable {
             emptyTrash()
             let kept = keeping?.cache.lastPathComponent
             var report = Report()
-            var remaining: [(slot: Slot, bytes: Int64)] = []
+            var remaining: [(slot: Slot, bytes: Int64, pinned: Bool)] = []
             for project in Self.directories(in: projects) {
                 if Task.isCancelled { return report }
                 let slots = slots(in: project)
@@ -137,19 +137,20 @@ public struct BuildCache: Sendable {
                     continue
                 }
                 for slot in slots {
-                    let primary = slot.number == 0 && slot.project == kept
                     let age = now.timeIntervalSince(slot.lastUsed)
                     // Pre-slot directories are replaced, unless an older lazyxcode may still be building into one.
+                    // Older versions take no lease, so a recent one is kept even when the cache is over its limit.
+                    let pinned = slot.number == 0 && slot.project == kept || slot.number == nil && age <= 3600
                     let limit = slot.number.map { $0 == 0 ? policy.maxAge : policy.spareSlotAge } ?? 3600
-                    if primary || age <= limit || !remove(slot, report: &report) {
-                        remaining.append((slot, size(of: slot)))
+                    if pinned || age <= limit || !remove(slot, report: &report) {
+                        remaining.append((slot, size(of: slot), pinned))
                     }
                 }
             }
             var total = remaining.reduce(0) { $0 + $1.bytes }
-            for (slot, bytes) in remaining.sorted(by: { $0.slot.lastUsed < $1.slot.lastUsed }) {
+            for (slot, bytes, pinned) in remaining.sorted(by: { $0.slot.lastUsed < $1.slot.lastUsed }) {
                 guard total > policy.limit, !Task.isCancelled else { break }
-                if slot.number == 0 && slot.project == kept { continue }
+                if pinned { continue }
                 if remove(slot, report: &report) { total -= bytes }
             }
             report.keptBytes = total

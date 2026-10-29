@@ -106,8 +106,11 @@ public final class BuildManager {
         records[index].phase = phase
         records[index].error = error
         if !phase.active { records[index].finishedAt = Date() }
-        // A launched app no longer needs DerivedData, so another build may use the slot.
-        if !phase.active || phase == .running { leases.removeValue(forKey: id)?.release() }
+        // An installed app no longer needs DerivedData, so another build may use the slot.
+        // A Mac app opens from DerivedData, so its lease is kept until the launch finishes.
+        if !phase.active || phase == .running && !records[index].simulator.isMac {
+            leases.removeValue(forKey: id)?.release()
+        }
         let line = "\n[lazyxcode \(Date().formatted(.iso8601))] \(phase.rawValue)\(error.map { ": " + $0 } ?? "")\n"
         logs[id]?.append(Data(line.utf8))
         do { try store.save(records) } catch { lastError = "Could not save history: \(error.localizedDescription)" }
