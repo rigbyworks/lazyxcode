@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import LazyXcodeCore
@@ -59,6 +60,42 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
     second.release()
     let recorded = try Store.read(Container.self, from: store.cache.appendingPathComponent("project.json"))
     #expect(recorded == store.container)
+}
+
+@Test func releasedSlotIsReusedWhileProcessesLaunch() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let store = try fixture.project("App")
+    // A process launched while a lease is held keeps the lock until it execs, even after the lease is released.
+    let launching = Atomic(true)
+    let launchers = DispatchGroup()
+    for _ in 0..<4 {
+        DispatchQueue.global().async(group: launchers) {
+            while launching.load(ordering: .relaxed) {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+                process.standardOutput = Pipe()
+                try? process.run()
+                process.waitUntilExit()
+            }
+        }
+    }
+    defer {
+        launching.store(false, ordering: .relaxed)
+        launchers.wait()
+    }
+    for _ in 0..<1000 {
+        let lease = try store.leaseDerivedData()
+        usleep(200)
+        lease.release()
+        let again = try store.leaseDerivedData()
+        let slot = again.url.lastPathComponent
+        again.release()
+        guard slot == "slot-0" else {
+            Issue.record("Leased \(slot) although slot-0 was free")
+            return
+        }
+    }
 }
 
 @Test @MainActor func sequentialBuildsOnDifferentDestinationsShareOneSlot() async throws {

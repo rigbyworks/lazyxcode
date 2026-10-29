@@ -7,6 +7,8 @@ import Synchronization
 /// The kernel drops the lock if the process exits.
 public final class SlotLease: Sendable {
     static let fileName = ".lazyxcode-lease"
+    /// When this process last released each lease file.
+    private static let releases = Mutex<[String: ContinuousClock.Instant]>([:])
     public let url: URL
     private let descriptor: Mutex<Int32>
     private let recordsUse: Bool
@@ -21,13 +23,19 @@ public final class SlotLease: Sendable {
     /// With `recordsUse`, the lease file's modification time marks when the slot was last used.
     static func acquire(_ url: URL, recordsUse: Bool) throws -> SlotLease? {
         let file = url.appendingPathComponent(fileName)
-        for _ in 0..<3 {
+        var moved = 0
+        while moved < 3 {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             let fd = open(file.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
             guard fd >= 0 else { throw AppError("Could not lock \(url.path): \(String(cString: strerror(errno)))") }
             guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+                let error = errno
                 close(fd)
-                return nil
+                // A process forked while this process held the lease keeps the lock until it execs.
+                // Wait for that instead of moving to another slot and building it from scratch.
+                guard error == EINTR || error == EWOULDBLOCK && releasedRecently(file) else { return nil }
+                usleep(2_000)
+                continue
             }
             // Pruning may have moved the slot away after this file was opened. Lock the file now at the path instead.
             var held = stat()
@@ -36,11 +44,17 @@ public final class SlotLease: Sendable {
                 held.st_ino == current.st_ino
             {
                 if recordsUse { futimes(fd, nil) }
+                _ = releases.withLock { $0.removeValue(forKey: file.path) }
                 return SlotLease(url: url, descriptor: fd, recordsUse: recordsUse)
             }
             close(fd)
+            moved += 1
         }
         return nil
+    }
+
+    private static func releasedRecently(_ file: URL) -> Bool {
+        releases.withLock { $0[file.path].map { ContinuousClock.now - $0 < .seconds(1) } ?? false }
     }
 
     public func release() {
@@ -49,6 +63,7 @@ public final class SlotLease: Sendable {
             if recordsUse { futimes(fd, nil) }
             close(fd)
             fd = -1
+            Self.releases.withLock { $0[url.appendingPathComponent(Self.fileName).path] = .now }
         }
     }
     deinit { release() }
