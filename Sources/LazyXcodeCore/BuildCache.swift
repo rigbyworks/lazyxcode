@@ -69,7 +69,7 @@ public final class SlotLease: Sendable {
     deinit { release() }
 }
 
-/// Marks a project as open in a lazyxcode process, so pruning and clearing elsewhere keep its first slot.
+/// Marks a project as open in a lazyxcode process, so pruning and clearing other projects keep its first slot.
 /// Each process holds a shared lock on a file in the project's cache. The kernel drops it if the process exits.
 public final class OpenProject: Sendable {
     static let fileName = ".lazyxcode-open"
@@ -139,14 +139,17 @@ public struct BuildCache: Sendable {
     public struct Report: Sendable, Equatable {
         public var removed = 0
         public var freedBytes: Int64 = 0
-        /// Slots left in place because an activity is using them.
+        /// Slots left in place because a build or a running app is using them.
         public var inUse = 0
+        /// First slots left in place because their project is open in a lazyxcode process.
+        public var open = 0
         public var keptBytes: Int64 = 0
         public init() {}
         public mutating func add(_ other: Report) {
             removed += other.removed
             freedBytes += other.freedBytes
             inUse += other.inUse
+            open += other.open
             keptBytes += other.keptBytes
         }
     }
@@ -183,19 +186,19 @@ public struct BuildCache: Sendable {
             for project in Self.directories(in: projects) {
                 if Task.isCancelled { return report }
                 let slots = slots(in: project)
-                if let container = container(key: project.lastPathComponent), Self.isMissing(container.path) {
+                if let container = container(key: project.lastPathComponent), Self.isMissing(container.path),
                     removeProject(project, slots: slots, report: &report)
+                {
                     continue
                 }
-                let open = project.lastPathComponent == kept || OpenProject.isOpen(cache: project)
                 for slot in slots {
                     let age = now.timeIntervalSince(slot.lastUsed)
                     // Pre-slot directories are replaced, unless an older lazyxcode may still be building into one.
                     // Older versions take no lease, so a recent one is kept even when the cache is over its limit.
-                    let pinned = slot.number == 0 && open || slot.number == nil && age <= 3600
+                    let pinned = slot.number == 0 && slot.project == kept || slot.number == nil && age <= 3600
                     let limit = slot.number.map { $0 == 0 ? policy.maxAge : policy.spareSlotAge } ?? 3600
                     let expired = !pinned && age > limit
-                    if expired && remove(slot, report: &report) { continue }
+                    if expired && remove(slot, keepingIfOpen: true, report: &report) { continue }
                     // An expired slot that could not be removed is in use, so the size pass skips it too.
                     remaining.append((slot, size(of: slot), pinned || expired))
                 }
@@ -204,7 +207,7 @@ public struct BuildCache: Sendable {
             for (slot, bytes, pinned) in remaining.sorted(by: { $0.slot.lastUsed < $1.slot.lastUsed }) {
                 guard total > policy.limit, !Task.isCancelled else { break }
                 if pinned { continue }
-                if remove(slot, report: &report) { total -= bytes }
+                if remove(slot, keepingIfOpen: true, report: &report) { total -= bytes }
             }
             report.keptBytes = total
             return report
@@ -213,7 +216,7 @@ public struct BuildCache: Sendable {
 
     /// Removes every slot of one project that no activity or running app is using.
     public func clear(project: URL) -> Report {
-        clear(project: project, keepingFirst: false)
+        clear(project: project, keepingIfOpen: false)
     }
 
     /// Removes every project's unused slots, except those of `keeping` and the first slot of each project open in
@@ -222,21 +225,15 @@ public struct BuildCache: Sendable {
         var report = Report()
         for project in Self.directories(in: projects)
         where project.lastPathComponent != keeping?.cache.lastPathComponent {
-            report.add(clear(project: project, keepingFirst: OpenProject.isOpen(cache: project)))
+            report.add(clear(project: project, keepingIfOpen: true))
         }
         return report
     }
 
-    private func clear(project: URL, keepingFirst: Bool) -> Report {
+    private func clear(project: URL, keepingIfOpen: Bool) -> Report {
         Self.withThrottledDiskIO {
             var report = Report()
-            for slot in slots(in: project) {
-                if keepingFirst && slot.number == 0 {
-                    report.inUse += 1
-                } else {
-                    remove(slot, report: &report)
-                }
-            }
+            for slot in slots(in: project) { remove(slot, keepingIfOpen: keepingIfOpen, report: &report) }
             emptyTrash()
             return report
         }
@@ -327,14 +324,21 @@ public struct BuildCache: Sendable {
         return bytes
     }
 
+    /// With `keepingIfOpen`, the first slot stays while its project is open in a lazyxcode process.
     @discardableResult
-    private func remove(_ slot: Slot, report: inout Report) -> Bool {
+    private func remove(_ slot: Slot, keepingIfOpen: Bool, report: inout Report) -> Bool {
         guard Store.contains(slot.url, in: projects) else { return false }
         guard let lease = try? SlotLease.acquire(slot.url, recordsUse: false) else {
             report.inUse += 1
             return false
         }
         defer { lease.release() }
+        // Checked just before removal, so a project opened while a long prune runs keeps its first slot.
+        if keepingIfOpen && slot.number == 0 && OpenProject.isOpen(cache: projects.appendingPathComponent(slot.project))
+        {
+            report.open += 1
+            return false
+        }
         // Checked after leasing, since a Mac app keeps its slot leased until it has launched.
         guard !Self.isRunning(from: slot.url) else {
             report.inUse += 1
@@ -347,24 +351,28 @@ public struct BuildCache: Sendable {
         return true
     }
 
-    private func removeProject(_ project: URL, slots: [Slot], report: inout Report) {
+    /// Removes a deleted project's whole cache. Returns false, having removed nothing, while the project is open in
+    /// a lazyxcode process: removing its open marker with it would leave other processes unaware that it is open.
+    private func removeProject(_ project: URL, slots: [Slot], report: inout Report) -> Bool {
+        guard !OpenProject.isOpen(cache: project) else { return false }
         var leases: [SlotLease] = []
         defer { for lease in leases { lease.release() } }
         for slot in slots {
             guard let lease = try? SlotLease.acquire(slot.url, recordsUse: false) else {
                 report.inUse += 1
-                return
+                return true
             }
             leases.append(lease)
         }
         guard !Self.isRunning(from: project) else {
             report.inUse += slots.count
-            return
+            return true
         }
         let bytes = Self.allocatedSize(project)
-        guard discard(project) else { return }
+        guard discard(project) else { return true }
         report.removed += slots.count
         report.freedBytes += bytes
+        return true
     }
 
     /// True when a running process's executable is inside `directory`, such as a Mac app opened from DerivedData.

@@ -192,6 +192,30 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
         run(["status"], environment: ["LAZYXCODE_CACHE_LIMIT": "lots"]).1.hasPrefix("LAZYXCODE_CACHE_LIMIT must be"))
 }
 
+@Test func cacheCommandSaysWhyDerivedDataWasKept() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let open = try fixture.store("Open")
+    let openSlot = try fixture.build(open)
+    let marker = open.markOpen()
+    defer { _ = marker }
+    let busy = try fixture.store("Busy")
+    try fixture.build(busy)
+    let lease = try busy.leaseDerivedData()
+    defer { lease.release() }
+    var lines: [String] = []
+    _ = CacheCommand.run(["clear", "--all"], cache: fixture.cache, directory: fixture.root, environment: [:]) {
+        lines.append($0)
+    }
+    #expect(
+        lines == [
+            "Cleared Zero KB of DerivedData.", "Kept 1 in use by a build or a running app.",
+            "Kept DerivedData of 1 project open in lazyxcode.",
+        ])
+    #expect(exists(openSlot))
+    #expect(CacheCommand.status(cache: fixture.cache, policy: CachePolicy()).contains("Open.xcodeproj (open)"))
+}
+
 extension String {
     fileprivate var deletingLastPathComponentURL: URL { URL(fileURLWithPath: self).deletingLastPathComponent() }
 }

@@ -11,8 +11,8 @@ enum CacheCommand {
           clear        Clear DerivedData for the project in the current directory
           clear --all  Clear DerivedData for every project
 
-        DerivedData that a build or a running app is using is never removed, and neither is
-        DerivedData of a project open in another lazyxcode, unless you clear that project.
+        DerivedData that a build or a running app is using is never removed. A project open in
+        lazyxcode keeps its main DerivedData, unless you clear that project by itself.
         Set LAZYXCODE_CACHE_LIMIT to a number of gigabytes to change the 50 GB limit.
         """
 
@@ -39,7 +39,7 @@ enum CacheCommand {
                     : "Removed \(report.removed) DerivedData \(report.removed == 1 ? "folder" : "folders") and freed "
                         + "\(WorkspaceModel.bytes(report.freedBytes)). \(WorkspaceModel.bytes(report.keptBytes)) remains."
             )
-            if report.inUse > 0 { output(keptMessage(report.inUse)) }
+            kept(report).forEach(output)
         case ["clear"], ["clear", "--all"]:
             var report = BuildCache.Report()
             if arguments.count == 2 {
@@ -53,9 +53,9 @@ enum CacheCommand {
                 for store in stores { report.add(store.clearDerivedData()) }
             }
             output(
-                report.removed == 0 && report.inUse == 0
+                report.removed == 0 && report.inUse == 0 && report.open == 0
                     ? "No DerivedData to clear." : "Cleared \(WorkspaceModel.bytes(report.freedBytes)) of DerivedData.")
-            if report.inUse > 0 { output(keptMessage(report.inUse)) }
+            kept(report).forEach(output)
         case ["--help"], ["-h"]:
             output(help)
         default:
@@ -101,8 +101,15 @@ enum CacheCommand {
         return lines.joined(separator: "\n")
     }
 
-    static func keptMessage(_ count: Int) -> String {
-        "Kept \(count) in use by a build, a running app, or an open lazyxcode."
+    /// Why DerivedData was left in place, one sentence per reason.
+    static func kept(_ report: BuildCache.Report) -> [String] {
+        var sentences: [String] = []
+        if report.inUse > 0 { sentences.append("Kept \(report.inUse) in use by a build or a running app.") }
+        if report.open > 0 {
+            sentences.append(
+                "Kept DerivedData of \(report.open) \(report.open == 1 ? "project" : "projects") open in lazyxcode.")
+        }
+        return sentences
     }
 
     static func abbreviate(_ path: String) -> String {

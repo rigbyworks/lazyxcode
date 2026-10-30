@@ -102,8 +102,7 @@ public struct ProjectStore: Sendable {
     /// Leases the lowest-numbered free slot. Schemes and destinations share a slot, as they do in Xcode, because
     /// Xcode keeps each platform's products apart. Another slot is only needed while two builds run at once.
     public func leaseDerivedData() throws -> SlotLease {
-        // Records the project path so pruning can tell when the project is deleted.
-        try? Store.write(container, to: cache.appendingPathComponent("project.json"))
+        recordContainer()
         for slot in 0..<32 {
             if let lease = try SlotLease.acquire(derivedData(slot: slot), recordsUse: true) { return lease }
         }
@@ -111,7 +110,12 @@ public struct ProjectStore: Sendable {
     }
     /// Marks the project open until the result is released, so other lazyxcode processes keep its first slot.
     public func markOpen() -> OpenProject? {
-        OpenProject(cache: cache)
+        recordContainer()
+        return OpenProject(cache: cache)
+    }
+    /// Records the project path so pruning can tell when the project is deleted.
+    private func recordContainer() {
+        try? Store.write(container, to: cache.appendingPathComponent("project.json"))
     }
     public func resultDirectory(id: String) throws -> URL {
         guard !id.isEmpty, id == (try Store.safeComponent(id)) else { throw AppError("Invalid activity ID") }

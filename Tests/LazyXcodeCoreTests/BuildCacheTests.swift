@@ -315,11 +315,41 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
     #expect(exists(openFirst))
     #expect(!exists(openSpare))
     #expect(!exists(closed))
-    #expect(report.inUse == 1)
+    #expect(report.open == 1)
+    #expect(report.inUse == 0)
     // Clearing an open project by name is what was asked for, so its first slot goes too.
     #expect(fixture.cache.clear(project: open.cache).removed == 1)
     #expect(!exists(openFirst))
     _ = marker
+}
+
+@Test func deletedProjectsOpenInAProcessKeepTheirMarkerAndFirstSlot() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let deleted = try fixture.project("Deleted", existing: false)
+    let first = try fixture.slot(deleted, 0, age: 30 * 86_400)
+    let spare = try fixture.slot(deleted, 1, age: 3 * 86_400)
+    let marker = deleted.markOpen()
+    let report = fixture.cache.prune(policy: CachePolicy())
+    #expect(exists(first))
+    #expect(!exists(spare))
+    #expect(report.open == 1)
+    #expect(OpenProject.isOpen(cache: deleted.cache))
+    _ = marker
+}
+
+@Test func projectsOpenedButNeverBuiltAreRemovedOnceDeleted() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let store = try fixture.project("App")
+    do {
+        let marker = store.markOpen()
+        _ = marker
+    }
+    #expect(fixture.cache.container(key: store.cache.lastPathComponent) == store.container)
+    try FileManager.default.removeItem(atPath: store.container.path)
+    _ = fixture.cache.prune(policy: CachePolicy())
+    #expect(!exists(store.cache))
 }
 
 /// Runs a copy of `sleep` from `directory`, as a Mac app runs from DerivedData.
@@ -335,12 +365,14 @@ private func runExecutable(in directory: URL) throws -> Process {
     sign.standardError = Pipe()
     try sign.run()
     sign.waitUntilExit()
+    try #require(sign.terminationStatus == 0, "Could not sign the copy of sleep")
     let process = Process()
     process.executableURL = executable
     process.arguments = ["30"]
     try process.run()
     let deadline = Date().addingTimeInterval(5)
-    while !BuildCache.isRunning(from: directory) && Date() < deadline { usleep(10_000) }
+    while process.isRunning && !BuildCache.isRunning(from: directory) && Date() < deadline { usleep(10_000) }
+    try #require(BuildCache.isRunning(from: directory), "The copy of sleep did not start")
     return process
 }
 

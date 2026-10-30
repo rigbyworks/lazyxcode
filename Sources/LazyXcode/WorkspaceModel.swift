@@ -251,6 +251,7 @@ final class WorkspaceModel {
             refreshCacheSize()
         } catch {
             manager = nil
+            openMarker = nil
             status = error.localizedDescription
         }
     }
@@ -817,11 +818,12 @@ final class WorkspaceModel {
         cacheClearing = Task {
             let report = await work.value
             cacheClearing = nil
+            let kept = CacheCommand.kept(report)
             status =
-                report.removed == 0 && report.inUse == 0
+                report.removed == 0 && kept.isEmpty
                 ? "No DerivedData to clear"
                 : "Cleared \(Self.bytes(report.freedBytes)) of DerivedData"
-                    + (report.inUse > 0 ? ". Kept \(report.inUse) in use." : "")
+                    + (kept.isEmpty ? "" : ". " + kept.joined(separator: " "))
             refreshCacheSize()
             next?()
         }
