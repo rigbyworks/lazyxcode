@@ -397,15 +397,23 @@ private func runExecutable(in directory: URL) throws -> Process {
     #expect(!exists(slot))
 }
 
-@Test func deletedProjectsWithARunningAppAreKept() throws {
+@Test func deletedProjectsKeepOnlyTheSlotARunningAppUsesAndItCountsTowardTheLimit() throws {
     let fixture = try CacheFixture()
     defer { fixture.remove() }
     let deleted = try fixture.project("Deleted", existing: false)
-    let slot = try fixture.slot(deleted, 0, age: 60)
+    let slot = try fixture.slot(deleted, 0, age: 60, bytes: 4000)
+    let spare = try fixture.slot(deleted, 1, age: 60, bytes: 1000)
+    let recent = try fixture.slot(try fixture.project("Recent"), 0, age: 60, bytes: 3000)
     let app = try runExecutable(in: slot)
     defer { app.terminate() }
-    #expect(fixture.cache.prune(policy: CachePolicy()).inUse == 1)
+    let report = fixture.cache.prune(policy: CachePolicy(limit: 5000))
     #expect(exists(slot))
+    #expect(!exists(spare))
+    // Only the kept slot's 4000 bytes put the cache over the limit.
+    #expect(!exists(recent))
+    #expect(report.inUse == 1)
+    #expect(report.removed == 2)
+    #expect(report.keptBytes == 4000)
     app.terminate()
     app.waitUntilExit()
     #expect(fixture.cache.prune(policy: CachePolicy()).removed == 1)

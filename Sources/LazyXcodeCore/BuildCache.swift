@@ -186,9 +186,15 @@ public struct BuildCache: Sendable {
             for project in Self.directories(in: projects) {
                 if Task.isCancelled { return report }
                 let slots = slots(in: project)
+                // A deleted project that is open keeps its cache, open marker included, and is pruned like any other.
                 if let container = container(key: project.lastPathComponent), Self.isMissing(container.path),
-                    removeProject(project, slots: slots, report: &report)
+                    !OpenProject.isOpen(cache: project)
                 {
+                    if removeProject(project, slots: slots, report: &report) { continue }
+                    // A build or a running app is using part of it. What stays counts toward the limit.
+                    for slot in slots where !remove(slot, keepingIfOpen: false, report: &report) {
+                        remaining.append((slot, size(of: slot), true))
+                    }
                     continue
                 }
                 for slot in slots {
@@ -351,25 +357,18 @@ public struct BuildCache: Sendable {
         return true
     }
 
-    /// Removes a deleted project's whole cache. Returns false, having removed nothing, while the project is open in
-    /// a lazyxcode process: removing its open marker with it would leave other processes unaware that it is open.
+    /// Removes a deleted project's whole cache. Returns false, having removed nothing, while a build or a running app
+    /// is using any of it.
     private func removeProject(_ project: URL, slots: [Slot], report: inout Report) -> Bool {
-        guard !OpenProject.isOpen(cache: project) else { return false }
         var leases: [SlotLease] = []
         defer { for lease in leases { lease.release() } }
         for slot in slots {
-            guard let lease = try? SlotLease.acquire(slot.url, recordsUse: false) else {
-                report.inUse += 1
-                return true
-            }
+            guard let lease = try? SlotLease.acquire(slot.url, recordsUse: false) else { return false }
             leases.append(lease)
         }
-        guard !Self.isRunning(from: project) else {
-            report.inUse += slots.count
-            return true
-        }
+        guard !Self.isRunning(from: project) else { return false }
         let bytes = Self.allocatedSize(project)
-        guard discard(project) else { return true }
+        guard discard(project) else { return false }
         report.removed += slots.count
         report.freedBytes += bytes
         return true
