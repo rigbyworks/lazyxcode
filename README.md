@@ -145,7 +145,7 @@ lazyxcode cleans up its DerivedData in the background when it starts and every 6
 - It removes DerivedData unused for 14 days, or 2 days for the extra copies made for concurrent builds.
 - It keeps the total under 50 GB by removing the least recently used DerivedData first. Set `LAZYXCODE_CACHE_LIMIT` to a number of gigabytes to change the limit, for example `export LAZYXCODE_CACHE_LIMIT=100`.
 
-It never removes DerivedData that a build in any lazyxcode window is using, or the main DerivedData of the project open in lazyxcode.
+It never removes DerivedData that a build in any lazyxcode window is using, or that a Mac app you are running opened from. It also keeps the main DerivedData of every project open in a lazyxcode window, such as each git worktree open in its own terminal tab. Open projects still count toward the limit, so if you keep many worktrees open, raise `LAZYXCODE_CACHE_LIMIT`.
 
 The Build pane shows this project's DerivedData out of the total for every project, for example `Cache 7 GB of 18.4 GB`. When the disk has less than 20 GB free, it shows the free space instead, and lazyxcode asks once per session before starting a build. You can clear other projects' DerivedData first, or continue.
 

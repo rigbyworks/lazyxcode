@@ -100,6 +100,8 @@ final class WorkspaceModel {
     @ObservationIgnored let buildCache: BuildCache?
     @ObservationIgnored var cachePruning: Task<Void, Never>?
     @ObservationIgnored var cacheClearing: Task<Void, Never>?
+    /// Keeps other lazyxcode processes from pruning the open project's DerivedData.
+    @ObservationIgnored var openMarker: OpenProject?
     @ObservationIgnored var lowSpaceThreshold = CachePolicy.lowDiskSpace
     /// Set once the person chooses to build despite low disk space, so the warning shows once per session.
     @ObservationIgnored var lowSpaceAcknowledged = false
@@ -241,6 +243,7 @@ final class WorkspaceModel {
                 managers[value.path] = new
                 manager = new
             }
+            if buildCache != nil { openMarker = manager?.store.markOpen() }
             let directory = URL(fileURLWithPath: value.path).deletingLastPathComponent().path
             preferences.containers[directory] = value.path
             savePreferences()
@@ -248,6 +251,7 @@ final class WorkspaceModel {
             refreshCacheSize()
         } catch {
             manager = nil
+            openMarker = nil
             status = error.localizedDescription
         }
     }
@@ -814,11 +818,12 @@ final class WorkspaceModel {
         cacheClearing = Task {
             let report = await work.value
             cacheClearing = nil
+            let kept = CacheCommand.kept(report)
             status =
-                report.removed == 0 && report.inUse == 0
+                report.removed == 0 && kept.isEmpty
                 ? "No DerivedData to clear"
                 : "Cleared \(Self.bytes(report.freedBytes)) of DerivedData"
-                    + (report.inUse > 0 ? ". Kept \(report.inUse) in use by a build." : "")
+                    + (kept.isEmpty ? "" : ". " + kept.joined(separator: " "))
             refreshCacheSize()
             next?()
         }
