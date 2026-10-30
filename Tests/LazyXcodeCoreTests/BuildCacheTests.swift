@@ -287,6 +287,14 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
     _ = marker
 }
 
+/// Waits for a released open marker's lock to go. A process that other tests launch while the marker is held keeps the
+/// lock until it execs, as with slot leases.
+private func waitUntilClosed(_ store: ProjectStore) throws {
+    let deadline = Date().addingTimeInterval(5)
+    while OpenProject.isOpen(cache: store.cache) && Date() < deadline { usleep(1_000) }
+    try #require(!OpenProject.isOpen(cache: store.cache))
+}
+
 @Test func pruneRemovesTheFirstSlotOnceNoProcessHasTheProjectOpen() throws {
     let fixture = try CacheFixture()
     defer { fixture.remove() }
@@ -297,7 +305,7 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
         #expect(fixture.cache.prune(policy: CachePolicy()).removed == 0)
         _ = marker
     }
-    #expect(!OpenProject.isOpen(cache: store.cache))
+    try waitUntilClosed(store)
     #expect(fixture.cache.prune(policy: CachePolicy()).removed == 1)
     #expect(!exists(first))
 }
@@ -346,6 +354,7 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
         let marker = store.markOpen()
         _ = marker
     }
+    try waitUntilClosed(store)
     #expect(fixture.cache.container(key: store.cache.lastPathComponent) == store.container)
     try FileManager.default.removeItem(atPath: store.container.path)
     _ = fixture.cache.prune(policy: CachePolicy())
