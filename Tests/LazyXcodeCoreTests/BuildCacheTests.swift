@@ -262,3 +262,120 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
     let lease = try #require(try SlotLease.acquire(store.derivedData(slot: 0), recordsUse: false))
     lease.release()
 }
+
+@Test func pruneKeepsTheFirstSlotOfProjectsOpenInOtherProcesses() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let open = try fixture.project("Open")
+    let openFirst = try fixture.slot(open, 0, age: 30 * 86_400)
+    let openSpare = try fixture.slot(open, 1, age: 3 * 86_400)
+    let closed = try fixture.slot(try fixture.project("Closed"), 0, age: 86_400)
+    var marker = open.markOpen()
+    #expect(marker != nil)
+    let report = fixture.cache.prune(policy: CachePolicy(limit: 0))
+    #expect(exists(openFirst))
+    #expect(!exists(openSpare))
+    #expect(!exists(closed))
+    #expect(report.removed == 2)
+    #expect(fixture.cache.usage().first?.open == true)
+    // A second process with the project open shares the lock rather than waiting for the first.
+    let other = open.markOpen()
+    #expect(other != nil)
+    marker = nil
+    #expect(fixture.cache.prune(policy: CachePolicy(limit: 0)).removed == 0)
+    _ = other
+    _ = marker
+}
+
+@Test func pruneRemovesTheFirstSlotOnceNoProcessHasTheProjectOpen() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let store = try fixture.project("App")
+    let first = try fixture.slot(store, 0, age: 30 * 86_400)
+    do {
+        let marker = store.markOpen()
+        #expect(fixture.cache.prune(policy: CachePolicy()).removed == 0)
+        _ = marker
+    }
+    #expect(!OpenProject.isOpen(cache: store.cache))
+    #expect(fixture.cache.prune(policy: CachePolicy()).removed == 1)
+    #expect(!exists(first))
+}
+
+@Test func clearingOtherProjectsKeepsTheFirstSlotOfOpenOnes() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let current = try fixture.project("Current")
+    let open = try fixture.project("Open")
+    let openFirst = try fixture.slot(open, 0, age: 60)
+    let openSpare = try fixture.slot(open, 1, age: 60)
+    let closed = try fixture.slot(try fixture.project("Closed"), 0, age: 60)
+    let marker = open.markOpen()
+    let report = fixture.cache.clearAll(except: current)
+    #expect(exists(openFirst))
+    #expect(!exists(openSpare))
+    #expect(!exists(closed))
+    #expect(report.inUse == 1)
+    // Clearing an open project by name is what was asked for, so its first slot goes too.
+    #expect(fixture.cache.clear(project: open.cache).removed == 1)
+    #expect(!exists(openFirst))
+    _ = marker
+}
+
+/// Runs a copy of `sleep` from `directory`, as a Mac app runs from DerivedData.
+private func runExecutable(in directory: URL) throws -> Process {
+    let executable = directory.appendingPathComponent("App.app/Contents/MacOS/App")
+    try FileManager.default.createDirectory(
+        at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.copyItem(atPath: "/bin/sleep", toPath: executable.path)
+    // A copied platform binary is killed at launch unless it is signed again.
+    let sign = Process()
+    sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+    sign.arguments = ["--force", "--sign", "-", executable.path]
+    sign.standardError = Pipe()
+    try sign.run()
+    sign.waitUntilExit()
+    let process = Process()
+    process.executableURL = executable
+    process.arguments = ["30"]
+    try process.run()
+    let deadline = Date().addingTimeInterval(5)
+    while !BuildCache.isRunning(from: directory) && Date() < deadline { usleep(10_000) }
+    return process
+}
+
+@Test func slotsWithARunningAppAreNeverRemoved() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let store = try fixture.project("App")
+    let slot = try fixture.slot(store, 0, age: 30 * 86_400)
+    let app = try runExecutable(in: slot)
+    defer { app.terminate() }
+    #expect(BuildCache.isRunning(from: slot))
+    #expect(!BuildCache.isRunning(from: store.derivedData(slot: 1)))
+    let prune = fixture.cache.prune(policy: CachePolicy(limit: 0))
+    #expect(exists(slot))
+    #expect(prune.inUse == 1)
+    #expect(fixture.cache.clear(project: store.cache).inUse == 1)
+    #expect(fixture.cache.clearAll().inUse == 1)
+    #expect(exists(slot))
+    app.terminate()
+    app.waitUntilExit()
+    #expect(fixture.cache.clear(project: store.cache).removed == 1)
+    #expect(!exists(slot))
+}
+
+@Test func deletedProjectsWithARunningAppAreKept() throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let deleted = try fixture.project("Deleted", existing: false)
+    let slot = try fixture.slot(deleted, 0, age: 60)
+    let app = try runExecutable(in: slot)
+    defer { app.terminate() }
+    #expect(fixture.cache.prune(policy: CachePolicy()).inUse == 1)
+    #expect(exists(slot))
+    app.terminate()
+    app.waitUntilExit()
+    #expect(fixture.cache.prune(policy: CachePolicy()).removed == 1)
+    #expect(!exists(deleted.cache))
+}

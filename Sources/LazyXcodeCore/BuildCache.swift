@@ -69,6 +69,36 @@ public final class SlotLease: Sendable {
     deinit { release() }
 }
 
+/// Marks a project as open in a lazyxcode process, so pruning and clearing elsewhere keep its first slot.
+/// Each process holds a shared lock on a file in the project's cache. The kernel drops it if the process exits.
+public final class OpenProject: Sendable {
+    static let fileName = ".lazyxcode-open"
+    private let descriptor: Int32
+
+    init?(cache: URL) {
+        try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let fd = open(cache.appendingPathComponent(Self.fileName).path, O_RDONLY | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { return nil }
+        // Blocks only for the moment another process holds the lock to check whether the project is open.
+        while flock(fd, LOCK_SH) != 0 {
+            guard errno == EINTR else {
+                close(fd)
+                return nil
+            }
+        }
+        descriptor = fd
+    }
+    deinit { close(descriptor) }
+
+    /// True while any lazyxcode process, including this one, has the project open.
+    static func isOpen(cache: URL) -> Bool {
+        let fd = open(cache.appendingPathComponent(fileName).path, O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        return flock(fd, LOCK_EX | LOCK_NB) != 0 && errno == EWOULDBLOCK
+    }
+}
+
 /// Limits for managed DerivedData across every project.
 public struct CachePolicy: Sendable, Equatable {
     /// Below this much free disk space, lazyxcode asks before starting a build.
@@ -125,6 +155,8 @@ public struct BuildCache: Sendable {
         /// Nil when the cache no longer records which project it belongs to.
         public var container: Container?
         public var missing: Bool
+        /// True while a lazyxcode process has the project open.
+        public var open: Bool
         public var bytes: Int64
         public var slots: Int
         public var lastUsed: Date?
@@ -140,7 +172,8 @@ public struct BuildCache: Sendable {
     var trash: URL { root.appendingPathComponent("trash") }
 
     /// Removes the caches of deleted projects, slots unused past the policy's ages, and then the least recently used
-    /// slots until the total fits the limit. The first slot of `keeping`, the project being opened, always stays.
+    /// slots until the total fits the limit. The first slot of `keeping`, the project being opened, and of every
+    /// project open in a lazyxcode process always stays.
     public func prune(policy: CachePolicy, keeping: ProjectStore? = nil, now: Date = Date()) -> Report {
         Self.withThrottledDiskIO {
             emptyTrash()
@@ -154,15 +187,17 @@ public struct BuildCache: Sendable {
                     removeProject(project, slots: slots, report: &report)
                     continue
                 }
+                let open = project.lastPathComponent == kept || OpenProject.isOpen(cache: project)
                 for slot in slots {
                     let age = now.timeIntervalSince(slot.lastUsed)
                     // Pre-slot directories are replaced, unless an older lazyxcode may still be building into one.
                     // Older versions take no lease, so a recent one is kept even when the cache is over its limit.
-                    let pinned = slot.number == 0 && slot.project == kept || slot.number == nil && age <= 3600
+                    let pinned = slot.number == 0 && open || slot.number == nil && age <= 3600
                     let limit = slot.number.map { $0 == 0 ? policy.maxAge : policy.spareSlotAge } ?? 3600
-                    if pinned || age <= limit || !remove(slot, report: &report) {
-                        remaining.append((slot, size(of: slot), pinned))
-                    }
+                    let expired = !pinned && age > limit
+                    if expired && remove(slot, report: &report) { continue }
+                    // An expired slot that could not be removed is in use, so the size pass skips it too.
+                    remaining.append((slot, size(of: slot), pinned || expired))
                 }
             }
             var total = remaining.reduce(0) { $0 + $1.bytes }
@@ -176,24 +211,35 @@ public struct BuildCache: Sendable {
         }
     }
 
-    /// Removes every slot of one project that no activity is using.
+    /// Removes every slot of one project that no activity or running app is using.
     public func clear(project: URL) -> Report {
-        Self.withThrottledDiskIO {
-            var report = Report()
-            for slot in slots(in: project) { remove(slot, report: &report) }
-            emptyTrash()
-            return report
-        }
+        clear(project: project, keepingFirst: false)
     }
 
-    /// Removes every project's unused slots, except those of `keeping`.
+    /// Removes every project's unused slots, except those of `keeping` and the first slot of each project open in
+    /// another lazyxcode process.
     public func clearAll(except keeping: ProjectStore? = nil) -> Report {
         var report = Report()
         for project in Self.directories(in: projects)
         where project.lastPathComponent != keeping?.cache.lastPathComponent {
-            report.add(clear(project: project))
+            report.add(clear(project: project, keepingFirst: OpenProject.isOpen(cache: project)))
         }
         return report
+    }
+
+    private func clear(project: URL, keepingFirst: Bool) -> Report {
+        Self.withThrottledDiskIO {
+            var report = Report()
+            for slot in slots(in: project) {
+                if keepingFirst && slot.number == 0 {
+                    report.inUse += 1
+                } else {
+                    remove(slot, report: &report)
+                }
+            }
+            emptyTrash()
+            return report
+        }
     }
 
     /// DerivedData disk use for each project, largest first.
@@ -205,6 +251,7 @@ public struct BuildCache: Sendable {
                 return ProjectUsage(
                     key: project.lastPathComponent, container: container,
                     missing: container.map { Self.isMissing($0.path) } ?? false,
+                    open: OpenProject.isOpen(cache: project),
                     bytes: slots.reduce(0) { $0 + size(of: $1) }, slots: slots.count,
                     lastUsed: slots.map(\.lastUsed).max())
             }.sorted { $0.bytes > $1.bytes }
@@ -287,8 +334,13 @@ public struct BuildCache: Sendable {
             report.inUse += 1
             return false
         }
-        let bytes = size(of: slot)
         defer { lease.release() }
+        // Checked after leasing, since a Mac app keeps its slot leased until it has launched.
+        guard !Self.isRunning(from: slot.url) else {
+            report.inUse += 1
+            return false
+        }
+        let bytes = size(of: slot)
         guard discard(slot.url) else { return false }
         report.removed += 1
         report.freedBytes += bytes
@@ -305,10 +357,36 @@ public struct BuildCache: Sendable {
             }
             leases.append(lease)
         }
+        guard !Self.isRunning(from: project) else {
+            report.inUse += slots.count
+            return
+        }
         let bytes = Self.allocatedSize(project)
         guard discard(project) else { return }
         report.removed += slots.count
         report.freedBytes += bytes
+    }
+
+    /// True when a running process's executable is inside `directory`, such as a Mac app opened from DerivedData.
+    /// Deleting its bundle would break the resources it loads later.
+    static func isRunning(from directory: URL) -> Bool {
+        // The kernel reports executable paths with symlinks resolved, such as /private/var for /var.
+        guard let resolved = realpath(directory.path, nil) else { return false }
+        let prefix = String(cString: resolved) + "/"
+        free(resolved)
+        var pids = [pid_t](repeating: 0, count: Int(proc_listallpids(nil, 0)) + 64)
+        let count = pids.withUnsafeMutableBytes { proc_listallpids($0.baseAddress, Int32($0.count)) }
+        var path = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        for pid in pids.prefix(Int(max(count, 0))) where pid > 0 {
+            let length = proc_pidpath(pid, &path, UInt32(path.count))
+            if length > 0,
+                String(decoding: path.prefix(Int(length)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+                    .hasPrefix(prefix)
+            {
+                return true
+            }
+        }
+        return false
     }
 
     /// Moves a directory out of the cache in one step, so no build can find it half-deleted, then deletes it.

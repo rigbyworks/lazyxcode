@@ -109,6 +109,10 @@ public struct ProjectStore: Sendable {
         }
         throw AppError("Every DerivedData slot for this project is in use")
     }
+    /// Marks the project open until the result is released, so other lazyxcode processes keep its first slot.
+    public func markOpen() -> OpenProject? {
+        OpenProject(cache: cache)
+    }
     public func resultDirectory(id: String) throws -> URL {
         guard !id.isEmpty, id == (try Store.safeComponent(id)) else { throw AppError("Invalid activity ID") }
         let url = state.appendingPathComponent("results/\(id)")

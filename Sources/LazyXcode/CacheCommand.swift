@@ -11,7 +11,8 @@ enum CacheCommand {
           clear        Clear DerivedData for the project in the current directory
           clear --all  Clear DerivedData for every project
 
-        DerivedData that a running build is using is never removed.
+        DerivedData that a build or a running app is using is never removed, and neither is
+        DerivedData of a project open in another lazyxcode, unless you clear that project.
         Set LAZYXCODE_CACHE_LIMIT to a number of gigabytes to change the 50 GB limit.
         """
 
@@ -38,7 +39,7 @@ enum CacheCommand {
                     : "Removed \(report.removed) DerivedData \(report.removed == 1 ? "folder" : "folders") and freed "
                         + "\(WorkspaceModel.bytes(report.freedBytes)). \(WorkspaceModel.bytes(report.keptBytes)) remains."
             )
-            if report.inUse > 0 { output("Kept \(report.inUse) in use by a build.") }
+            if report.inUse > 0 { output(keptMessage(report.inUse)) }
         case ["clear"], ["clear", "--all"]:
             var report = BuildCache.Report()
             if arguments.count == 2 {
@@ -54,7 +55,7 @@ enum CacheCommand {
             output(
                 report.removed == 0 && report.inUse == 0
                     ? "No DerivedData to clear." : "Cleared \(WorkspaceModel.bytes(report.freedBytes)) of DerivedData.")
-            if report.inUse > 0 { output("Kept \(report.inUse) in use by a build.") }
+            if report.inUse > 0 { output(keptMessage(report.inUse)) }
         case ["--help"], ["-h"]:
             output(help)
         default:
@@ -81,7 +82,9 @@ enum CacheCommand {
         dates.unitsStyle = .short
         let rows = projects.map { project in
             let name =
-                project.container.map { abbreviate($0.path) + (project.missing ? " (deleted)" : "") }
+                project.container.map {
+                    abbreviate($0.path) + (project.missing ? " (deleted)" : project.open ? " (open)" : "")
+                }
                 ?? "Unknown project \(project.key)"
             return (
                 WorkspaceModel.bytes(project.bytes),
@@ -96,6 +99,10 @@ enum CacheCommand {
         }
         lines += ["", row("SIZE", "LAST USED", "PROJECT")] + rows.map { row($0.0, $0.1, $0.2) }
         return lines.joined(separator: "\n")
+    }
+
+    static func keptMessage(_ count: Int) -> String {
+        "Kept \(count) in use by a build, a running app, or an open lazyxcode."
     }
 
     static func abbreviate(_ path: String) -> String {
