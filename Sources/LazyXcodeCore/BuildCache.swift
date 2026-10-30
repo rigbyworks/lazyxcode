@@ -71,6 +71,8 @@ public final class SlotLease: Sendable {
 
 /// Limits for managed DerivedData across every project.
 public struct CachePolicy: Sendable, Equatable {
+    /// Below this much free disk space, lazyxcode asks before starting a build.
+    public static let lowDiskSpace: Int64 = 20_000_000_000
     /// Least recently used slots are removed while the total exceeds this many bytes.
     public var limit: Int64
     public var maxAge: TimeInterval
@@ -110,6 +112,22 @@ public struct BuildCache: Sendable {
         /// Slots left in place because an activity is using them.
         public var inUse = 0
         public var keptBytes: Int64 = 0
+        public init() {}
+        public mutating func add(_ other: Report) {
+            removed += other.removed
+            freedBytes += other.freedBytes
+            inUse += other.inUse
+            keptBytes += other.keptBytes
+        }
+    }
+    public struct ProjectUsage: Sendable {
+        public var key: String
+        /// Nil when the cache no longer records which project it belongs to.
+        public var container: Container?
+        public var missing: Bool
+        public var bytes: Int64
+        public var slots: Int
+        public var lastUsed: Date?
     }
     static let sizeFileName = ".lazyxcode-size"
     public let root: URL
@@ -166,6 +184,46 @@ public struct BuildCache: Sendable {
             emptyTrash()
             return report
         }
+    }
+
+    /// Removes every project's unused slots, except those of `keeping`.
+    public func clearAll(except keeping: ProjectStore? = nil) -> Report {
+        var report = Report()
+        for project in Self.directories(in: projects)
+        where project.lastPathComponent != keeping?.cache.lastPathComponent {
+            report.add(clear(project: project))
+        }
+        return report
+    }
+
+    /// DerivedData disk use for each project, largest first.
+    public func usage() -> [ProjectUsage] {
+        Self.withThrottledDiskIO {
+            Self.directories(in: projects).map { project in
+                let slots = slots(in: project)
+                let container = container(key: project.lastPathComponent)
+                return ProjectUsage(
+                    key: project.lastPathComponent, container: container,
+                    missing: container.map { Self.isMissing($0.path) } ?? false,
+                    bytes: slots.reduce(0) { $0 + size(of: $1) }, slots: slots.count,
+                    lastUsed: slots.map(\.lastUsed).max())
+            }.sorted { $0.bytes > $1.bytes }
+        }
+    }
+
+    /// DerivedData disk use for one project.
+    public func size(project: URL) -> Int64 {
+        Self.withThrottledDiskIO { slots(in: project).reduce(0) { $0 + size(of: $1) } }
+    }
+
+    /// Free space on the volume that holds `url`, counting space macOS can reclaim, as Finder does.
+    public static func availableCapacity(at url: URL) -> Int64? {
+        var existing = url
+        while !FileManager.default.fileExists(atPath: existing.path) && existing.pathComponents.count > 1 {
+            existing.deleteLastPathComponent()
+        }
+        return (try? existing.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage
     }
 
     func slots(in project: URL) -> [Slot] {

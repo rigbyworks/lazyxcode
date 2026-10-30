@@ -103,7 +103,7 @@ Press `?` in the app for the full list.
 | `r` | Build and run (refresh runs in Cloud mode) |
 | `t` | Run tests |
 | `x` | Cancel the selected activity |
-| `c` | Clear this project's DerivedData |
+| `c` | Clear this project's or other projects' DerivedData |
 | `R` | Reload schemes and destinations |
 | `d` | Simulators and devices |
 | `v` | Toggle concise / raw output |
@@ -146,6 +146,17 @@ lazyxcode cleans up its DerivedData in the background when it starts and every 6
 - It keeps the total under 50 GB by removing the least recently used DerivedData first. Set `LAZYXCODE_CACHE_LIMIT` to a number of gigabytes to change the limit, for example `export LAZYXCODE_CACHE_LIMIT=100`.
 
 It never removes DerivedData that a build in any lazyxcode window is using, or the main DerivedData of the project open in lazyxcode.
+
+The Build pane shows this project's DerivedData out of the total for every project, for example `Cache 7 GB of 18.4 GB`. When the disk has less than 20 GB free, it shows the free space instead, and lazyxcode asks once per session before starting a build. You can clear other projects' DerivedData first, or continue.
+
+To check or clean up the cache without opening a project:
+
+```sh
+lazyxcode cache status       # DerivedData per project, last use, and free disk space
+lazyxcode cache prune        # apply the cleanup rules above now
+lazyxcode cache clear        # clear DerivedData for the project in this directory
+lazyxcode cache clear --all  # clear DerivedData for every project
+```
 
 ## Contributing
 

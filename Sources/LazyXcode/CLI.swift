@@ -7,6 +7,7 @@ enum CLI {
     static var version: String { BuildVersion.value }
     static let help = """
         Usage: lazyxcode [--help | --version | --snapshot]
+               lazyxcode cache [status | prune | clear [--all]]
 
         Run from a directory containing an Xcode project or workspace.
         Requires macOS 15+ and full Xcode 16.3+.
@@ -14,6 +15,7 @@ enum CLI {
           --help, -h  Show this help
           --version   Show the installed version
           --snapshot  Render a sample workspace without Xcode or a terminal
+          cache       Show or clean up lazyxcode's DerivedData. See lazyxcode cache --help.
 
         Keys: b build, r run, t tests, m cloud, : actions, ? help, q quit.
         """
@@ -30,6 +32,13 @@ enum EntryPoint {
         if arguments == ["--version"] {
             print("lazyxcode \(CLI.version)")
             return
+        }
+        if arguments.first == "cache" {
+            let status = CacheCommand.run(
+                Array(arguments.dropFirst()), cache: BuildCache(),
+                directory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            ) { print($0) }
+            exit(status)
         }
         if !arguments.isEmpty && arguments != ["--snapshot"] {
             FileHandle.standardError.write(Data("lazyxcode: unknown argument \(arguments[0]); use --help\n".utf8))

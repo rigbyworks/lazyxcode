@@ -82,6 +82,9 @@ final class WorkspaceModel {
     var clock = Date()
     var quitRequested = false
     var cacheBytes: Int64 = 0
+    /// DerivedData of every project. Nil until measured, and in tests.
+    var cacheTotalBytes: Int64?
+    var freeBytes: Int64?
     var pausedOutput: String?
     var savedLocalOutput = OutputPosition()
     var savedCloudOutput = OutputPosition()
@@ -96,6 +99,11 @@ final class WorkspaceModel {
     /// Nil in tests and snapshots, which must not prune the real cache.
     @ObservationIgnored let buildCache: BuildCache?
     @ObservationIgnored var cachePruning: Task<Void, Never>?
+    @ObservationIgnored var cacheClearing: Task<Void, Never>?
+    @ObservationIgnored var lowSpaceThreshold = CachePolicy.lowDiskSpace
+    /// Set once the person chooses to build despite low disk space, so the warning shows once per session.
+    @ObservationIgnored var lowSpaceAcknowledged = false
+    @ObservationIgnored var wasActive = false
     @ObservationIgnored var wrappedCache: (text: String, width: Int, lines: [OutputLine])?
 
     @ObservationIgnored let client: XcodeClient
@@ -177,11 +185,16 @@ final class WorkspaceModel {
                 let prune = Task.detached(priority: .background) {
                     buildCache.prune(policy: policy, keeping: keeping)
                 }
-                _ = await withTaskCancellationHandler {
+                let report = await withTaskCancellationHandler {
                     await prune.value
                 } onCancel: {
                     prune.cancel()
                 }
+                guard !Task.isCancelled else { return }
+                if report.freedBytes > 0 {
+                    status = "Freed \(Self.bytes(report.freedBytes)) of unused DerivedData"
+                }
+                refreshCacheSize()
                 try? await Task.sleep(for: .seconds(6 * 3600))
             }
         }
@@ -394,6 +407,27 @@ final class WorkspaceModel {
         let scheme = original?.scheme ?? scheme
         let coverage = original?.coverage ?? coverage
         let token = generation
+        func start() {
+            guard !shuttingDown, !cloudMode, token == generation else { return }
+            self.start(
+                manager, operation, container: container, scheme: scheme, destination: destination,
+                targets: targets, scope: scope, coverage: coverage)
+        }
+        if let buildCache, !lowSpaceAcknowledged, let free = BuildCache.availableCapacity(at: buildCache.root),
+            free < lowSpaceThreshold
+        {
+            // Clearing other projects finishes after the menu closes, so start what was asked for even if
+            // the selection has changed since, and nothing at all if the project has.
+            warnLowSpace(free, then: start)
+            return
+        }
+        start()
+    }
+    private func start(
+        _ manager: BuildManager, _ operation: LazyXcodeCore.Operation, container: Container, scheme: String,
+        destination: Destination, targets: [String], scope: String, coverage: Bool
+    ) {
+        let token = generation
         let requestID = UUID()
         queuedRequests[requestID] = Task {
             defer { queuedRequests[requestID] = nil }
@@ -414,6 +448,9 @@ final class WorkspaceModel {
         guard !shuttingDown else { return }
         let now = Date()
         if Int(now.timeIntervalSince1970) != Int(clock.timeIntervalSince1970) { clock = now }
+        let active = hasActiveActivities
+        if wasActive && !active { refreshCacheSize() }
+        wasActive = active
         if !cloudMode && discovery == nil && clock.timeIntervalSince(lastDestinationRefresh) >= 15 {
             refreshDestinations()
         }
@@ -760,11 +797,34 @@ final class WorkspaceModel {
     func openProject() {
         load("Opening Xcode...") { try await self.client.openInXcode(self.container.path) }
     }
-    func clearCache() {
-        do {
-            try manager?.clearCache()
-            status = "Cleared managed DerivedData"
-        } catch { status = error.localizedDescription }
+    enum CacheScope { case project, others }
+    /// Clears DerivedData off the main actor, then runs `next`. Slots a build is using are kept.
+    func clearCache(_ scope: CacheScope, then next: (@MainActor () -> Void)? = nil) {
+        guard cacheClearing == nil else {
+            status = "Already clearing DerivedData"
+            return
+        }
+        guard let store = manager?.store else { return }
+        let cache = buildCache
+        status = "Clearing DerivedData..."
+        let work = Task.detached(priority: .utility) {
+            scope == .project ? store.clearDerivedData() : cache?.clearAll(except: store) ?? BuildCache.Report()
+        }
+        // Not awaited at shutdown. Anything left half-deleted is in the trash, which the next prune empties.
+        cacheClearing = Task {
+            let report = await work.value
+            cacheClearing = nil
+            status =
+                report.removed == 0 && report.inUse == 0
+                ? "No DerivedData to clear"
+                : "Cleared \(Self.bytes(report.freedBytes)) of DerivedData"
+                    + (report.inUse > 0 ? ". Kept \(report.inUse) in use by a build." : "")
+            refreshCacheSize()
+            next?()
+        }
+    }
+    nonisolated static func bytes(_ count: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
     }
     func copyOutput() {
         let text = OutputFormatter.sanitize(displayedText)
