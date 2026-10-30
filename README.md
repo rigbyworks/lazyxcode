@@ -48,7 +48,7 @@ lazyxcode finds the `.xcworkspace` or `.xcodeproj` in the current directory. If 
 - **Tests** for the whole scheme, unit or UI only, or a single test. Rerun only the failures.
 - **Results and coverage** browsing, drilling from target to file to function, with comparisons against earlier runs.
 - **Simulator and device management** to list, filter, create, and open simulators without leaving the terminal.
-- **Concurrent builds** for different scheme and destination pairs, each with its own DerivedData.
+- **Concurrent builds** for different scheme and destination pairs. Like Xcode, a project's builds share one DerivedData, so switching simulators is an incremental build. A second copy is made only while two builds run at once.
 - **Xcode Cloud** (optional, read-only): browse runs, logs, test results, and artifacts.
 - **Fast startup**: schemes appear from cache or project files, destinations appear from cache, and Xcode refreshes both in the background. Recent destinations are reused when switching schemes.
 
@@ -138,6 +138,14 @@ Colours come from the terminal's theme. In terminals that report light/dark chan
 | DerivedData and Cloud artifacts | `$XDG_CACHE_HOME/lazyxcode` (default `~/.cache/lazyxcode`) |
 
 lazyxcode keeps the newest 100 activities. `c` clears only this project's managed DerivedData. Xcode's global DerivedData is never touched.
+
+lazyxcode cleans up its DerivedData in the background when it starts and every 6 hours:
+
+- It removes the DerivedData of projects that no longer exist, such as deleted git worktrees. Projects on an unmounted volume are kept.
+- It removes DerivedData unused for 14 days, or 2 days for the extra copies made for concurrent builds.
+- It keeps the total under 50 GB by removing the least recently used DerivedData first. Set `LAZYXCODE_CACHE_LIMIT` to a number of gigabytes to change the limit, for example `export LAZYXCODE_CACHE_LIMIT=100`.
+
+It never removes DerivedData that a build in any lazyxcode window is using, or the main DerivedData of the project open in lazyxcode.
 
 ## Contributing
 

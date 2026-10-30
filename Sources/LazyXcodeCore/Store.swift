@@ -81,19 +81,33 @@ public struct Preferences: Codable, Sendable {
 }
 
 public struct ProjectStore: Sendable {
+    public let container: Container
     public let state: URL
     public let cache: URL
+    public let buildCache: BuildCache
     struct History: Codable {
         var version = 1
         var builds: [BuildRecord]
     }
     public init(container: Container, stateRoot: URL = Store.stateRoot, cacheRoot: URL = Store.cacheRoot) {
         let key = Store.shortHash(container.kind.rawValue + "\0" + container.path)
+        self.container = container
         state = stateRoot.appendingPathComponent("projects/\(key)")
         cache = cacheRoot.appendingPathComponent("projects/\(key)")
+        buildCache = BuildCache(root: cacheRoot, stateRoot: stateRoot)
     }
-    public func derivedData(scheme: String, destination: String) -> URL {
-        cache.appendingPathComponent("derived-data/\(Store.shortHash(scheme + "\0" + destination))")
+    public func derivedData(slot: Int) -> URL {
+        cache.appendingPathComponent("derived-data/slot-\(slot)")
+    }
+    /// Leases the lowest-numbered free slot. Schemes and destinations share a slot, as they do in Xcode, because
+    /// Xcode keeps each platform's products apart. Another slot is only needed while two builds run at once.
+    public func leaseDerivedData() throws -> SlotLease {
+        // Records the project path so pruning can tell when the project is deleted.
+        try? Store.write(container, to: cache.appendingPathComponent("project.json"))
+        for slot in 0..<32 {
+            if let lease = try SlotLease.acquire(derivedData(slot: slot), recordsUse: true) { return lease }
+        }
+        throw AppError("Every DerivedData slot for this project is in use")
     }
     public func resultDirectory(id: String) throws -> URL {
         guard !id.isEmpty, id == (try Store.safeComponent(id)) else { throw AppError("Invalid activity ID") }
@@ -145,10 +159,10 @@ public struct ProjectStore: Sendable {
         let data = try file.read(upToCount: Int(stop - start)) ?? Data()
         return (String(decoding: data, as: UTF8.self), start, stop)
     }
-    public func clearDerivedData() throws {
-        let url = cache.appendingPathComponent("derived-data")
-        guard Store.contains(url, in: cache) else { throw AppError("Unsafe cache path") }
-        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    /// Removes this project's DerivedData, except slots an activity in any lazyxcode process is using.
+    @discardableResult
+    public func clearDerivedData() -> BuildCache.Report {
+        buildCache.clear(project: cache)
     }
     public func artifactURL(run: String, artifact: String, name: String) throws -> URL {
         guard !artifact.isEmpty else { throw AppError("Missing artifact ID") }
