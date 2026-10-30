@@ -106,6 +106,35 @@ private func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath:
     await model.shutdown()
 }
 
+@Test @MainActor func lowDiskSpaceCleanupStartsTheActivityThatWasRequested() async throws {
+    let fixture = try CacheFixture()
+    defer { fixture.remove() }
+    let current = try fixture.store("Current")
+    let model = try fixture.model(current)
+    model.destinations.append(Destination(id: "pad", name: "Pad"))
+    model.lowSpaceThreshold = .max
+    for switchesProject in [false, true] {
+        try fixture.build(try fixture.store("Other"))
+        model.lowSpaceAcknowledged = false
+        model.refreshCacheSize()
+        try await waitUntil { model.otherProjectsBytes != nil }
+        model.queue(.build)
+        try choose(model, "Clear other projects")
+        // The selection changes while other projects' DerivedData is still being cleared.
+        model.scheme = "Changed"
+        model.destinationID = "pad"
+        if switchesProject { model.generation = UUID() }
+        try await waitUntil { model.cacheClearing == nil && model.queuedRequests.isEmpty }
+        try await waitUntil { model.manager?.active == false }
+        model.scheme = "App"
+        model.destinationID = "phone"
+    }
+    #expect(model.records.count == 1)
+    #expect(model.records.first?.scheme == "App")
+    #expect(model.records.first?.simulator.id == "phone")
+    await model.shutdown()
+}
+
 @Test @MainActor func lowDiskSpaceShowsAsAWarningInTheBuildPane() throws {
     let fixture = try CacheFixture()
     defer { fixture.remove() }

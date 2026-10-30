@@ -403,15 +403,30 @@ final class WorkspaceModel {
             status = "Choose a scheme and destination first"
             return
         }
-        if let buildCache, !lowSpaceAcknowledged, let free = BuildCache.availableCapacity(at: buildCache.root),
-            free < lowSpaceThreshold
-        {
-            warnLowSpace(free) { self.queue(operation, targets: targets, scope: scope, original: original) }
-            return
-        }
         let container = original?.container ?? container
         let scheme = original?.scheme ?? scheme
         let coverage = original?.coverage ?? coverage
+        let token = generation
+        func start() {
+            guard !shuttingDown, !cloudMode, token == generation else { return }
+            self.start(
+                manager, operation, container: container, scheme: scheme, destination: destination,
+                targets: targets, scope: scope, coverage: coverage)
+        }
+        if let buildCache, !lowSpaceAcknowledged, let free = BuildCache.availableCapacity(at: buildCache.root),
+            free < lowSpaceThreshold
+        {
+            // Clearing other projects finishes after the menu closes, so start what was asked for even if
+            // the selection has changed since, and nothing at all if the project has.
+            warnLowSpace(free, then: start)
+            return
+        }
+        start()
+    }
+    private func start(
+        _ manager: BuildManager, _ operation: LazyXcodeCore.Operation, container: Container, scheme: String,
+        destination: Destination, targets: [String], scope: String, coverage: Bool
+    ) {
         let token = generation
         let requestID = UUID()
         queuedRequests[requestID] = Task {
