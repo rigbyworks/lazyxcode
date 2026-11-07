@@ -80,6 +80,39 @@ public struct Preferences: Codable, Sendable {
     }
 }
 
+/// The UDIDs of devices pinned to the top of the Devices window. Pins apply to every project.
+///
+/// Pins have their own file because each lazyxcode window saves its whole `Preferences` when any value changes,
+/// so a window opened before a pin was added would drop it.
+public struct DevicePins: Sendable {
+    public let url: URL
+    struct File: Codable {
+        var version = 1
+        var devices: [String]
+    }
+    public init(root: URL = Store.stateRoot) {
+        url = root.appendingPathComponent("pinned-devices.json")
+    }
+    public func load() throws -> Set<String> {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return Set(try Store.read(File.self, from: url).devices)
+    }
+    /// Rereads the file before writing so pins from other lazyxcode windows survive, and returns the saved pins.
+    @discardableResult
+    public func setPinned(_ pinned: Bool, id: String) throws -> Set<String> {
+        var ids = try load()
+        if pinned { ids.insert(id) } else { ids.remove(id) }
+        try Store.write(File(devices: ids.sorted()), to: url)
+        return ids
+    }
+    /// Moves pinned devices above the rest, keeping the order within each group. Pins for devices that are
+    /// missing from the list, such as an unplugged iPhone, are ignored.
+    public static func ordered(_ devices: [Destination], pinned: Set<String>) -> [Destination] {
+        guard !pinned.isEmpty else { return devices }
+        return devices.filter { pinned.contains($0.id) } + devices.filter { !pinned.contains($0.id) }
+    }
+}
+
 public struct ProjectStore: Sendable {
     public let container: Container
     public let state: URL

@@ -349,3 +349,123 @@ func devicesModalAndNameFormRenderAcrossRetainedFrames(size: (Int, Int)) async {
     #expect(model.loading)
     await model.shutdown()
 }
+
+@Test @MainActor func pinnedDevicesStayOnTopAcrossLaunches() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let simulators = try SimulatorInventory.parse(
+        Data(
+            #"""
+            {"runtimes":[{"identifier":"ios","name":"iOS 27.0","version":"27.0","isAvailable":true}],
+             "devices":{"ios":[{"udid":"air","name":"iPhone Air","isAvailable":true,"state":"Shutdown"},
+                               {"udid":"old","name":"Old iPhone","isAvailable":false,"state":"Shutdown"}]}}
+            """#.utf8))
+    let physical = [
+        Destination(id: "phone", name: "iPhone 17", os: "27.0", platform: "iOS", state: "Connected", physical: true),
+        Destination(id: "mini", name: "iPad mini", os: "26.5", platform: "iOS", state: "Disconnected", physical: true),
+    ]
+    func launch() async -> (WorkspaceModel, WorkspaceView, () -> String) {
+        let model = WorkspaceModel(
+            containers: [Container(kind: .project, name: "Example", path: "/DeviceManagerTest")],
+            client: XcodeClient(runner: DeviceManagerRunner()), devicePins: DevicePins(root: root))
+        let view = WorkspaceView(model: model, live: false)
+        let renderer = DefaultRenderer()
+        _ = view.handle(KeyPress(.character("d")))
+        await model.deviceRefresh?.value
+        return (
+            model, view,
+            {
+                renderer.render(view.frame(width: 120, height: 30), proposal: .init(width: 120, height: 30))
+                    .rasterSurface.lines.joined(separator: "\n")
+            }
+        )
+    }
+
+    let (model, view, frame) = await launch()
+    model.physicalDevices = physical
+    model.simulatorInventory = simulators
+    #expect(model.visibleDevices.map(\.id) == ["phone", "mini", "old", "air"])
+    #expect(!frame().contains("★"))
+    #expect(model.deviceShortcuts.contains("[p] Pin"))
+
+    // An unavailable simulator can be pinned, and selection follows it to the top.
+    model.selectedDeviceID = "old"
+    _ = view.handle(KeyPress(.character("p")))
+    #expect(model.visibleDevices.map(\.id) == ["old", "phone", "mini", "air"])
+    #expect(model.selectedDevice?.id == "old")
+    #expect(model.deviceStatus == "Pinned Old iPhone to the top")
+    #expect(model.deviceShortcuts.contains("[p] Unpin"))
+    #expect(frame().contains("› ★ Old iPhone · 27.0"))
+    #expect(frame().contains("    Simulator · iOS Simulator · Unavailable"))
+    #expect(frame().contains("    iPhone 17 · 27.0"))
+
+    // Pinned devices keep the list's order, not the order they were pinned in.
+    _ = view.handle(KeyPress(.character("j")))
+    _ = view.handle(KeyPress(.character("j")))
+    #expect(model.selectedDevice?.id == "mini")
+    _ = view.handle(KeyPress(.character("p")))
+    #expect(model.visibleDevices.map(\.id) == ["mini", "old", "phone", "air"])
+    #expect(try DevicePins(root: root).load() == ["mini", "old"])
+
+    // While filtering, p is part of the query.
+    _ = view.handle(KeyPress(.character("/")))
+    _ = view.handle(KeyPress(.character("p")))
+    #expect(model.deviceQuery == "p")
+    #expect(model.pinnedDeviceIDs == ["mini", "old"])
+    _ = view.handle(KeyPress(.escape))
+
+    // The device menu offers the same toggle.
+    model.selectedDeviceID = "mini"
+    _ = view.handle(KeyPress(.return))
+    #expect(model.menu?.items.map(\.title).contains("Unpin from top") == true)
+    for character in "unpin" { _ = view.handle(KeyPress(.character(character))) }
+    _ = view.handle(KeyPress(.return))
+    #expect(model.menu == nil)
+    #expect(model.deviceStatus == "Unpinned iPad mini")
+    #expect(model.visibleDevices.map(\.id) == ["old", "phone", "mini", "air"])
+    await model.shutdown()
+
+    // A new launch reads the pins. A pinned device that is missing leaves the list intact.
+    let (relaunched, _, relaunchedFrame) = await launch()
+    #expect(relaunched.pinnedDeviceIDs == ["old"])
+    relaunched.physicalDevices = physical
+    #expect(relaunched.visibleDevices.map(\.id) == ["phone", "mini"])
+    #expect(relaunched.selectedDevice?.id == "phone")
+    #expect(!relaunchedFrame().contains("★"))
+    #expect(relaunchedFrame().contains("› iPhone 17 · 27.0"))
+    relaunched.simulatorInventory = simulators
+    #expect(relaunched.visibleDevices.map(\.id) == ["old", "phone", "mini", "air"])
+
+    // Opening Devices picks up pins another window saved.
+    try DevicePins(root: root).setPinned(true, id: "air")
+    _ = WorkspaceView(model: relaunched, live: false).handle(KeyPress(.character("d")))
+    _ = WorkspaceView(model: relaunched, live: false).handle(KeyPress(.character("d")))
+    await relaunched.deviceRefresh?.value
+    relaunched.physicalDevices = physical
+    relaunched.simulatorInventory = simulators
+    #expect(relaunched.visibleDevices.map(\.id) == ["old", "air", "phone", "mini"])
+    await relaunched.shutdown()
+}
+
+@Test @MainActor func pinThatCannotBeSavedLeavesTheListUnchanged() async throws {
+    // A file where the state directory should be makes every write fail.
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try Data().write(to: root)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let model = WorkspaceModel(
+        containers: [Container(kind: .project, name: "Example", path: "/DeviceManagerTest")],
+        client: XcodeClient(runner: DeviceManagerRunner()), devicePins: DevicePins(root: root))
+    let view = WorkspaceView(model: model, live: false)
+    _ = view.handle(KeyPress(.character("d")))
+    await model.deviceRefresh?.value
+    model.physicalDevices = [
+        Destination(id: "phone", name: "iPhone 17", physical: true),
+        Destination(id: "mini", name: "iPad mini", physical: true),
+    ]
+    model.selectedDeviceID = "mini"
+    _ = view.handle(KeyPress(.character("p")))
+    #expect(model.pinnedDeviceIDs.isEmpty)
+    #expect(model.visibleDevices.map(\.id) == ["phone", "mini"])
+    #expect(model.deviceStatus.hasPrefix("Could not save pinned devices"))
+    await model.shutdown()
+}
