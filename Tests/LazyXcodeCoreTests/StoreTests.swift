@@ -137,3 +137,15 @@ struct TemporaryProject {
     #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int == 0o600)
     #expect(try Store.read(DevicePins.File.self, from: url).devices == ["A"])
 }
+
+@Test func concurrentDevicePinChangesAreAllKept() throws {
+    let fixture = try TemporaryProject()
+    defer { fixture.remove() }
+    let root = fixture.root.appendingPathComponent("state")
+    let ids = (0..<40).map { "device-\($0)" }
+    // Each change opens its own lock descriptor, as a separate lazyxcode process would.
+    DispatchQueue.concurrentPerform(iterations: ids.count) { index in
+        _ = try? DevicePins(root: root).setPinned(true, id: ids[index])
+    }
+    #expect(try DevicePins(root: root).load() == Set(ids))
+}

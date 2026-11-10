@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 public enum Store {
@@ -98,12 +99,30 @@ public struct DevicePins: Sendable {
         return Set(try Store.read(File.self, from: url).devices)
     }
     /// Rereads the file before writing so pins from other lazyxcode windows survive, and returns the saved pins.
+    /// A lock held across the read and the write keeps two windows from each dropping the other's change.
     @discardableResult
     public func setPinned(_ pinned: Bool, id: String) throws -> Set<String> {
-        var ids = try load()
-        if pinned { ids.insert(id) } else { ids.remove(id) }
-        try Store.write(File(devices: ids.sorted()), to: url)
-        return ids
+        try withLock {
+            var ids = try load()
+            if pinned { ids.insert(id) } else { ids.remove(id) }
+            try Store.write(File(devices: ids.sorted()), to: url)
+            return ids
+        }
+    }
+    /// Locks a separate file, since the atomic write replaces the pins file and its inode.
+    /// The kernel drops the lock if the process exits.
+    private func withLock<T>(_ body: () throws -> T) throws -> T {
+        let lock = url.deletingPathExtension().appendingPathExtension("lock")
+        try FileManager.default.createDirectory(at: lock.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = open(lock.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw AppError("Could not lock \(lock.path): \(String(cString: strerror(errno)))") }
+        defer { close(fd) }
+        while flock(fd, LOCK_EX) != 0 {
+            guard errno == EINTR else {
+                throw AppError("Could not lock \(lock.path): \(String(cString: strerror(errno)))")
+            }
+        }
+        return try body()
     }
     /// Moves pinned devices above the rest, keeping the order within each group. Pins for devices that are
     /// missing from the list, such as an unplugged iPhone, are ignored.
