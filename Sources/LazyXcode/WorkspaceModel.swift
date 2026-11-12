@@ -45,6 +45,9 @@ final class WorkspaceModel {
     var simulatorInventory: SimulatorInventory?
     var physicalDevices: [Destination] = []
     var selectedDeviceID: String?
+    /// Without a store, as in tests and snapshots, pins last only for this session.
+    let devicePins: DevicePins?
+    var pinnedDeviceIDs: Set<String> = []
     var deviceStatus = "Press R to refresh devices"
     var deviceRefresh: Task<Void, Never>?
     /// The simulator half of `deviceRefresh`; its value is the failure message, if any.
@@ -134,12 +137,14 @@ final class WorkspaceModel {
 
     init(
         containers: [Container], preferences: Preferences = Preferences(), client: XcodeClient = XcodeClient(),
-        buildCache: BuildCache? = nil
+        buildCache: BuildCache? = nil, devicePins: DevicePins? = nil
     ) {
         self.containers = containers
         self.preferences = preferences
         self.client = client
         self.buildCache = buildCache
+        self.devicePins = devicePins
+        pinnedDeviceIDs = (try? devicePins?.load()) ?? []
         let directory = URL(fileURLWithPath: containers[0].path).deletingLastPathComponent().path
         container = containers.first { $0.path == preferences.containers[directory] } ?? containers[0]
     }

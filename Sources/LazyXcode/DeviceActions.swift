@@ -9,7 +9,9 @@ struct SimulatorDraft {
 }
 
 extension WorkspaceModel {
-    var managedDevices: [Destination] { physicalDevices + (simulatorInventory?.devices ?? []) }
+    var managedDevices: [Destination] {
+        DevicePins.ordered(physicalDevices + (simulatorInventory?.devices ?? []), pinned: pinnedDeviceIDs)
+    }
     var visibleDevices: [Destination] {
         guard !deviceQuery.isEmpty else { return managedDevices }
         return managedDevices.filter {
@@ -20,9 +22,10 @@ extension WorkspaceModel {
     var selectedDevice: Destination? { selectedDevice(in: visibleDevices) }
     var deviceShortcuts: [String] {
         let close = deviceQuery.isEmpty ? "[Esc] Close" : "[Esc] Clear filter"
+        let pin = selectedDevice.map { pinnedDeviceIDs.contains($0.id) ? ["[p] Unpin"] : ["[p] Pin"] } ?? []
         return cloudMode
-            ? ["[/] Filter", "[Enter] Details", "[R] Refresh", close]
-            : ["[/] Filter", "[n] New simulator", "[Enter] Actions", "[R] Refresh", close]
+            ? ["[/] Filter", "[Enter] Details"] + pin + ["[R] Refresh", close]
+            : ["[/] Filter", "[n] New simulator", "[Enter] Actions"] + pin + ["[R] Refresh", close]
     }
 
     // Callers that already filtered pass their list to avoid filtering again.
@@ -35,11 +38,29 @@ extension WorkspaceModel {
         refreshDevices()
     }
 
-    // Each opening starts unfiltered.
+    // Each opening starts unfiltered and picks up pins changed in other lazyxcode windows.
     private func presentDevices() {
         guard !showingDevices else { return }
         clearDeviceFilter()
+        if let pins = try? devicePins?.load() { pinnedDeviceIDs = pins }
         showingDevices = true
+    }
+
+    /// Selection follows the device, so a newly pinned device stays highlighted at the top.
+    func toggleDevicePin(_ device: Destination) {
+        let pinned = !pinnedDeviceIDs.contains(device.id)
+        if let devicePins {
+            do { pinnedDeviceIDs = try devicePins.setPinned(pinned, id: device.id) } catch {
+                deviceStatus = "Could not save pinned devices: \(error.localizedDescription)"
+                return
+            }
+        } else if pinned {
+            pinnedDeviceIDs.insert(device.id)
+        } else {
+            pinnedDeviceIDs.remove(device.id)
+        }
+        selectedDeviceID = device.id
+        deviceStatus = pinned ? "Pinned \(device.name) to the top" : "Unpinned \(device.name)"
     }
 
     func clearDeviceFilter() {
@@ -55,8 +76,11 @@ extension WorkspaceModel {
         deviceRefreshID = UUID()
         let token = deviceRefreshID
         let client = client
-        func message(_ text: String) -> String { [note, text].compactMap { $0 }.joined(separator: " · ") }
-        deviceStatus = message("Refreshing simulators and devices...")
+        func message(_ text: String, note: String? = note) -> String {
+            [note, text].compactMap { $0 }.joined(separator: " · ")
+        }
+        let refreshing = message("Refreshing simulators and devices...")
+        deviceStatus = refreshing
         // devicectl can take its full timeout, so simulators must not wait for it.
         let simulators = refreshPart("Simulator refresh failed", token: token, fetch: client.simulatorInventory) {
             self.simulatorInventory = $0
@@ -79,10 +103,13 @@ extension WorkspaceModel {
                 devices.cancel()
             }
             guard !Task.isCancelled, token == deviceRefreshID else { return }
+            // A status set while the refresh ran, such as a pin, leads the result instead of being replaced.
+            let latest = deviceStatus == refreshing ? note : deviceStatus
             deviceStatus =
                 errors.isEmpty
                 ? message(
-                    "\(simulatorInventory?.devices.count ?? 0) simulators · \(physicalDevices.count) devices · [n] New simulator"
+                    "\(simulatorInventory?.devices.count ?? 0) simulators · \(physicalDevices.count) devices · [n] New simulator",
+                    note: latest
                 )
                 : errors.joined(separator: "\n")
         }
@@ -240,6 +267,11 @@ extension WorkspaceModel {
                     })
             }
         }
+        actions.append(
+            MenuItem(pinnedDeviceIDs.contains(device.id) ? "Unpin from top" : "Pin to top") {
+                self.closeMenu()
+                self.toggleDevicePin(device)
+            })
         actions.append(
             MenuItem("Show device details") {
                 self.closeMenu()

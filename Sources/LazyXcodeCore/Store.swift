@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 public enum Store {
@@ -77,6 +78,63 @@ public struct Preferences: Codable, Sendable {
     }
     public func save(root: URL = Store.stateRoot) throws {
         try Store.write(self, to: root.appendingPathComponent("preferences.json"))
+    }
+}
+
+/// The UDIDs of devices pinned to the top of the Devices window. Pins apply to every project.
+///
+/// Pins have their own file because each lazyxcode window saves its whole `Preferences` when any value changes,
+/// so a window opened before a pin was added would drop it.
+public struct DevicePins: Sendable {
+    public let url: URL
+    struct File: Codable {
+        var version = 1
+        var devices: [String]
+        init(devices: [String]) { self.devices = devices }
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            devices = try values.decodeIfPresent([String].self, forKey: .devices) ?? []
+        }
+    }
+    public init(root: URL = Store.stateRoot) {
+        url = root.appendingPathComponent("pinned-devices.json")
+    }
+    public func load() throws -> Set<String> {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return Set(try Store.read(File.self, from: url).devices)
+    }
+    /// Rereads the file before writing so pins from other lazyxcode windows survive, and returns the saved pins.
+    /// A lock held across the read and the write keeps two windows from each dropping the other's change.
+    @discardableResult
+    public func setPinned(_ pinned: Bool, id: String) throws -> Set<String> {
+        try withLock {
+            // A damaged file would otherwise block every pin until it was deleted by hand, so start over.
+            var ids = (try? load()) ?? []
+            if pinned { ids.insert(id) } else { ids.remove(id) }
+            try Store.write(File(devices: ids.sorted()), to: url)
+            return ids
+        }
+    }
+    /// Locks a separate file, since the atomic write replaces the pins file and its inode.
+    /// The kernel drops the lock if the process exits.
+    private func withLock<T>(_ body: () throws -> T) throws -> T {
+        let lock = url.deletingPathExtension().appendingPathExtension("lock")
+        try FileManager.default.createDirectory(at: lock.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let fd = open(lock.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw AppError("Could not lock \(lock.path): \(String(cString: strerror(errno)))") }
+        defer { close(fd) }
+        while flock(fd, LOCK_EX) != 0 {
+            guard errno == EINTR else {
+                throw AppError("Could not lock \(lock.path): \(String(cString: strerror(errno)))")
+            }
+        }
+        return try body()
+    }
+    /// Moves pinned devices above the rest, keeping the order within each group. Pins for devices that are
+    /// missing from the list, such as an unplugged iPhone, are ignored.
+    public static func ordered(_ devices: [Destination], pinned: Set<String>) -> [Destination] {
+        guard !pinned.isEmpty else { return devices }
+        return devices.filter { pinned.contains($0.id) } + devices.filter { !pinned.contains($0.id) }
     }
 }
 

@@ -153,6 +153,7 @@ struct WorkspaceView: View {
             case .character("d"): model.showingDevices = false
             case .character("/"): model.filteringDevices = true
             case .character("n"): if !model.loading { model.newSimulator() }
+            case .character("p"): if let device = model.selectedDevice { model.toggleDevicePin(device) }
             case .character("R"): model.refreshDevices(force: true)
             case .character("i"): model.information()
             case .character("q"): return model.requestQuit() ? .ignored : .handled
@@ -227,6 +228,7 @@ struct WorkspaceView: View {
         Devices
           /               Filter by name, OS, kind, or state
           n               New simulator, in Local mode
+          p               Pin or unpin the highlighted device
           R               Refresh simulators and devices
           Enter           Device actions
           Esc             Clear the filter, then close

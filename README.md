@@ -68,6 +68,7 @@ Press `d` to open the Devices window. It lists every simulator and physical devi
 
 - `/` filters by name, OS, kind, or state.
 - Enter opens actions for the highlighted device, like opening a simulator or making it the build target.
+- `p` pins the highlighted device to the top of the list, marked with `★`, or unpins it. Pins apply to every project and are remembered by device UDID. A pinned device that is unplugged or deleted drops out of the list, and comes back to the top if it reappears.
 - `n` creates a simulator from an installed runtime. If no runtimes are listed, install one in Xcode > Settings > Components.
 
 ### Xcode Cloud

@@ -65,7 +65,8 @@ enum EntryPoint {
             }
             try await XcodeClient().checkEnvironment()
             let model = WorkspaceModel(
-                containers: containers, preferences: try Preferences.load(), buildCache: BuildCache())
+                containers: containers, preferences: try Preferences.load(), buildCache: BuildCache(),
+                devicePins: DevicePins())
             do { try await SwiftTUILauncher.run(TerminalApplication(model: model)) } catch {
                 await model.shutdown()
                 throw error

@@ -8,9 +8,12 @@ struct DevicesState {
     let query: String
     let filtering: Bool
     let shortcuts: [String]
+    /// Only pinned devices in `devices`, so pins for missing devices add no marker column.
+    let pinnedIDs: Set<String>
 
     @MainActor init(model: WorkspaceModel) {
         devices = model.visibleDevices
+        pinnedIDs = model.pinnedDeviceIDs.intersection(devices.map(\.id))
         selectedID = model.selectedDevice(in: devices)?.id
         refreshing = model.deviceRefresh != nil
         query = model.deviceQuery
@@ -41,15 +44,18 @@ struct DevicesView: View {
                 ).foregroundStyle(.muted).lineLimit(1)
             }
             ForEach(Array(state.devices.dropFirst(start).prefix(count))) { device in
+                let marker = state.pinnedIDs.isEmpty ? "" : state.pinnedIDs.contains(device.id) ? "★ " : "  "
                 VStack(alignment: .leading, spacing: 0) {
-                    Text((device.id == state.selectedID ? "› " : "  ") + device.name + " · " + device.os)
+                    Text((device.id == state.selectedID ? "› " : "  ") + marker + device.name + " · " + device.os)
                         .foregroundStyle(
                             device.id == state.selectedID ? SemanticShapeStyle.info : SemanticShapeStyle.foreground
                         )
                         .lineLimit(1)
                     if expanded {
-                        Text("  \(device.kindLabel) · \(device.platform) · \(device.state)").foregroundStyle(.muted)
-                            .lineLimit(1)
+                        Text(
+                            "  \(marker.isEmpty ? "" : "  ")\(device.kindLabel) · \(device.platform) · \(device.state)"
+                        )
+                        .foregroundStyle(.muted).lineLimit(1)
                     }
                 }
                 .frame(width: max(1, width - 4), alignment: .leading)

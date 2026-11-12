@@ -111,3 +111,56 @@ struct TemporaryProject {
     #expect(Store.contains(file, in: fixture.store.cache))
     #expect(file.lastPathComponent == "secret.zip")
 }
+
+@Test func pinnedDevicesSortFirstAndKeepTheirOrder() {
+    let devices = ["phone", "mini", "old", "air"].map { Destination(id: $0, name: $0) }
+    #expect(DevicePins.ordered(devices, pinned: []).map(\.id) == ["phone", "mini", "old", "air"])
+    // The list's own order wins within each group, not the order pins were added.
+    #expect(DevicePins.ordered(devices, pinned: ["air", "mini"]).map(\.id) == ["mini", "air", "phone", "old"])
+    #expect(DevicePins.ordered(devices, pinned: ["gone", "old"]).map(\.id) == ["old", "phone", "mini", "air"])
+    #expect(DevicePins.ordered([], pinned: ["gone"]).isEmpty)
+}
+
+@Test func devicePinsPersistAndMergeWithOtherWindows() throws {
+    let fixture = try TemporaryProject()
+    defer { fixture.remove() }
+    let root = fixture.root.appendingPathComponent("state")
+    #expect(try DevicePins(root: root).load().isEmpty)
+    #expect(try DevicePins(root: root).setPinned(true, id: "B") == ["B"])
+    // Another window rereads the file, so it keeps B.
+    #expect(try DevicePins(root: root).setPinned(true, id: "A") == ["A", "B"])
+    #expect(try DevicePins(root: root).setPinned(true, id: "A") == ["A", "B"])
+    #expect(try DevicePins(root: root).setPinned(false, id: "B") == ["A"])
+    #expect(try DevicePins(root: root).setPinned(false, id: "missing") == ["A"])
+    let url = root.appendingPathComponent("pinned-devices.json")
+    #expect(try DevicePins(root: root).load() == ["A"])
+    #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int == 0o600)
+    #expect(try Store.read(DevicePins.File.self, from: url).devices == ["A"])
+}
+
+@Test func damagedDevicePinsFileIsReplacedOnTheNextPin() throws {
+    let fixture = try TemporaryProject()
+    defer { fixture.remove() }
+    let root = fixture.root.appendingPathComponent("state")
+    let url = root.appendingPathComponent("pinned-devices.json")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    // A file without the version key still loads.
+    try Data(#"{"devices":["A"]}"#.utf8).write(to: url)
+    #expect(try DevicePins(root: root).load() == ["A"])
+    try Data("{\"devi".utf8).write(to: url)
+    #expect(throws: (any Error).self) { try DevicePins(root: root).load() }
+    #expect(try DevicePins(root: root).setPinned(true, id: "B") == ["B"])
+    #expect(try DevicePins(root: root).load() == ["B"])
+}
+
+@Test func concurrentDevicePinChangesAreAllKept() throws {
+    let fixture = try TemporaryProject()
+    defer { fixture.remove() }
+    let root = fixture.root.appendingPathComponent("state")
+    let ids = (0..<40).map { "device-\($0)" }
+    // Each change opens its own lock descriptor, as a separate lazyxcode process would.
+    DispatchQueue.concurrentPerform(iterations: ids.count) { index in
+        _ = try? DevicePins(root: root).setPinned(true, id: ids[index])
+    }
+    #expect(try DevicePins(root: root).load() == Set(ids))
+}
