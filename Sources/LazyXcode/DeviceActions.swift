@@ -76,8 +76,11 @@ extension WorkspaceModel {
         deviceRefreshID = UUID()
         let token = deviceRefreshID
         let client = client
-        func message(_ text: String) -> String { [note, text].compactMap { $0 }.joined(separator: " · ") }
-        deviceStatus = message("Refreshing simulators and devices...")
+        func message(_ text: String, note: String? = note) -> String {
+            [note, text].compactMap { $0 }.joined(separator: " · ")
+        }
+        let refreshing = message("Refreshing simulators and devices...")
+        deviceStatus = refreshing
         // devicectl can take its full timeout, so simulators must not wait for it.
         let simulators = refreshPart("Simulator refresh failed", token: token, fetch: client.simulatorInventory) {
             self.simulatorInventory = $0
@@ -100,10 +103,13 @@ extension WorkspaceModel {
                 devices.cancel()
             }
             guard !Task.isCancelled, token == deviceRefreshID else { return }
+            // A status set while the refresh ran, such as a pin, leads the result instead of being replaced.
+            let latest = deviceStatus == refreshing ? note : deviceStatus
             deviceStatus =
                 errors.isEmpty
                 ? message(
-                    "\(simulatorInventory?.devices.count ?? 0) simulators · \(physicalDevices.count) devices · [n] New simulator"
+                    "\(simulatorInventory?.devices.count ?? 0) simulators · \(physicalDevices.count) devices · [n] New simulator",
+                    note: latest
                 )
                 : errors.joined(separator: "\n")
         }

@@ -90,6 +90,11 @@ public struct DevicePins: Sendable {
     struct File: Codable {
         var version = 1
         var devices: [String]
+        init(devices: [String]) { self.devices = devices }
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            devices = try values.decodeIfPresent([String].self, forKey: .devices) ?? []
+        }
     }
     public init(root: URL = Store.stateRoot) {
         url = root.appendingPathComponent("pinned-devices.json")
@@ -103,7 +108,8 @@ public struct DevicePins: Sendable {
     @discardableResult
     public func setPinned(_ pinned: Bool, id: String) throws -> Set<String> {
         try withLock {
-            var ids = try load()
+            // A damaged file would otherwise block every pin until it was deleted by hand, so start over.
+            var ids = (try? load()) ?? []
             if pinned { ids.insert(id) } else { ids.remove(id) }
             try Store.write(File(devices: ids.sorted()), to: url)
             return ids

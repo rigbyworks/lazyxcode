@@ -228,7 +228,7 @@ struct WorkspaceView: View {
         Devices
           /               Filter by name, OS, kind, or state
           n               New simulator, in Local mode
-          p               Pin or unpin the device at the top
+          p               Pin or unpin the highlighted device
           R               Refresh simulators and devices
           Enter           Device actions
           Esc             Clear the filter, then close

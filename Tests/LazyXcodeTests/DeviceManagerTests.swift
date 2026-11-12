@@ -447,6 +447,22 @@ func devicesModalAndNameFormRenderAcrossRetainedFrames(size: (Int, Int)) async {
     await relaunched.shutdown()
 }
 
+@Test @MainActor func pinDuringRefreshKeepsItsStatus() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let model = WorkspaceModel(
+        containers: [Container(kind: .project, name: "Example", path: "/DeviceManagerTest")],
+        client: XcodeClient(runner: DeviceManagerRunner()), devicePins: DevicePins(root: root))
+    let view = WorkspaceView(model: model, live: false)
+    model.physicalDevices = [Destination(id: "phone", name: "iPhone 17", physical: true)]
+    _ = view.handle(KeyPress(.character("d")))
+    #expect(model.deviceRefresh != nil)
+    _ = view.handle(KeyPress(.character("p")))
+    await model.deviceRefresh?.value
+    #expect(model.deviceStatus.hasPrefix("Pinned iPhone 17 to the top · "))
+    await model.shutdown()
+}
+
 @Test @MainActor func pinThatCannotBeSavedLeavesTheListUnchanged() async throws {
     // A file where the state directory should be makes every write fail.
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -138,6 +138,21 @@ struct TemporaryProject {
     #expect(try Store.read(DevicePins.File.self, from: url).devices == ["A"])
 }
 
+@Test func damagedDevicePinsFileIsReplacedOnTheNextPin() throws {
+    let fixture = try TemporaryProject()
+    defer { fixture.remove() }
+    let root = fixture.root.appendingPathComponent("state")
+    let url = root.appendingPathComponent("pinned-devices.json")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    // A file without the version key still loads.
+    try Data(#"{"devices":["A"]}"#.utf8).write(to: url)
+    #expect(try DevicePins(root: root).load() == ["A"])
+    try Data("{\"devi".utf8).write(to: url)
+    #expect(throws: (any Error).self) { try DevicePins(root: root).load() }
+    #expect(try DevicePins(root: root).setPinned(true, id: "B") == ["B"])
+    #expect(try DevicePins(root: root).load() == ["B"])
+}
+
 @Test func concurrentDevicePinChangesAreAllKept() throws {
     let fixture = try TemporaryProject()
     defer { fixture.remove() }
